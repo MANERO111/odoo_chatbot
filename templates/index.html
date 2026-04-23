@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>icg | Sales Rep Co-pilot</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/main.css') }}">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&display=swap" rel="stylesheet">
+</head>
+<body>
+    <div class="app-container">
+        <!-- Sidebar -->
+        <div class="sidebar">
+            <div class="logo">icg.copilot</div>
+            
+            <div class="session-info">
+                <div class="info-card">
+                    <div class="info-label">Sales Rep</div>
+                    <div id="display-commercial" class="info-value">Not Identified</div>
+                </div>
+                <div class="info-card">
+                    <div class="info-label">Active Client</div>
+                    <div id="display-client" class="info-value">None</div>
+                </div>
+            </div>
+            
+            <div class="status-indicator">
+                <div class="info-label">System Status</div>
+                <div class="info-value" style="color: #4ade80;">● Online</div>
+            </div>
+        </div>
+
+        <!-- Main Chat -->
+        <div class="chat-area">
+            <div id="chat-messages">
+                <div class="message bot">
+                    Salam! Marhba bik f icg co-pilot. Chno hoa l-ism dyalk a commercial?
+                </div>
+            </div>
+
+            <form id="chat-form" class="input-container">
+                <input type="text" id="user-input" placeholder="Type your message..." autocomplete="off">
+                <button type="submit">Send</button>
+            </form>
+        </div>
+    </div>
+
+    <script>
+        const chatForm = document.getElementById('chat-form');
+        const userInput = document.getElementById('user-input');
+        const chatMessages = document.getElementById('chat-messages');
+        const displayComm = document.getElementById('display-commercial');
+        const displayClient = document.getElementById('display-client');
+
+        // Generate a simple session ID
+        const sessionId = 'web_' + Math.random().toString(36).substr(2, 9);
+
+        chatForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const msg = userInput.value.trim();
+            if (!msg) return;
+
+            // Add user message to UI
+            appendMessage(msg, 'user');
+            userInput.value = '';
+
+            try {
+                const response = await fetch('/api/chat', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        message: msg,
+                        session_id: sessionId
+                    })
+                });
+
+                const data = await response.json();
+                
+                if (data.reply) {
+                    appendMessage(data.reply, 'bot');
+                    updateStatus(data.reply);
+                }
+            } catch (err) {
+                console.error(err);
+                appendMessage("Sorry, I'm having trouble connecting to the server.", 'bot');
+            }
+        });
+
+        function appendMessage(text, side) {
+            const div = document.createElement('div');
+            div.className = `message ${side}`;
+            div.innerText = text;
+            chatMessages.appendChild(div);
+            chatMessages.scrollTop = chatMessages.scrollHeight;
+        }
+
+        function updateStatus(reply) {
+            // Very basic logic to update sidebar based on bot's mention of names
+            // In a real app, the API would return a 'metadata' object with these details
+            if (reply.includes("Marhba bik")) {
+                const name = reply.split("Marhba bik ")[1].split("!")[0];
+                displayComm.innerText = name;
+            }
+            if (reply.includes("client '")) {
+                const name = reply.split("client '")[1].split("'")[0];
+                displayClient.innerText = name;
+            }
+            if (reply.includes("Talab raqm #")) {
+                 displayClient.innerText = "None";
+            }
+        }
+    </script>
+</body>
+</html>
