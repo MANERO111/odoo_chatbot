@@ -1,56 +1,13 @@
 """
-auth.py – Lightweight SQLite authentication for the chatbot.
-Users are stored in users.db (same folder as app.py).
-Passwords are hashed with werkzeug's pbkdf2 sha256.
+auth.py – Odoo XML-RPC authentication for the chatbot.
 """
-import sqlite3
-import os
 from functools import wraps
-from flask import Blueprint, request, session, redirect, url_for, render_template, flash
-from werkzeug.security import generate_password_hash, check_password_hash
+from flask import Blueprint, request, session, redirect, url_for, render_template
 
-DB_PATH = os.path.join(os.path.dirname(__file__), "users.db")
+# Import Odoo authentication
+from odoo_service import odoo_authenticate
 
 auth_bp = Blueprint("auth", __name__)
-
-# ─── DB helpers ───────────────────────────────────────────────────────────────
-
-def get_db():
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    return conn
-
-def init_db():
-    """Create the users table if it doesn't exist."""
-    with get_db() as conn:
-        conn.execute("""
-            CREATE TABLE IF NOT EXISTS users (
-                id       INTEGER PRIMARY KEY AUTOINCREMENT,
-                username TEXT    NOT NULL UNIQUE,
-                password TEXT    NOT NULL
-            )
-        """)
-        conn.commit()
-
-def get_user(username):
-    with get_db() as conn:
-        return conn.execute(
-            "SELECT * FROM users WHERE username = ?", (username,)
-        ).fetchone()
-
-def create_user(username, password):
-    """Create a new user. Returns True on success, False if username already exists."""
-    hashed = generate_password_hash(password)
-    try:
-        with get_db() as conn:
-            conn.execute(
-                "INSERT INTO users (username, password) VALUES (?, ?)",
-                (username, hashed)
-            )
-            conn.commit()
-        return True
-    except sqlite3.IntegrityError:
-        return False  # Username already exists
 
 # ─── Decorator ────────────────────────────────────────────────────────────────
 
@@ -75,17 +32,19 @@ def login():
         username = request.form.get("username", "").strip()
         password = request.form.get("password", "")
 
-        user = get_user(username)
-        if user and check_password_hash(user["password"], password):
+        result = odoo_authenticate(username, password)
+        
+        if result and result.get("success"):
+            user_data = result["user_data"]
             session.permanent = True
             session["logged_in"] = True
-            session["username"] = username
+            session["user_id"] = user_data["uid"]
+            session["username"] = user_data["name"]
             return redirect(url_for("index"))
         else:
-            error = "Incorrect username or password."
+            error = result.get("error", "An unknown error occurred during authentication.") if result else "Authentication failed."
 
     return render_template("login.html", error=error)
-
 
 @auth_bp.route("/logout")
 def logout():

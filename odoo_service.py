@@ -1,6 +1,7 @@
 import requests
 import os
 import json
+import xmlrpc.client
 
 def get_config():
     ODOO_URL = os.environ.get("ODOO_URL", "http://localhost:8069")
@@ -109,3 +110,56 @@ def odoo_create_quotation(partner_id, products, promo_code=None, discount=None):
     except requests.RequestException as e:
         print(f"[Odoo Sync Error] - create_quotation failed: {e}")
         return None
+
+def odoo_authenticate(username, password):
+    ODOO_URL = os.environ.get("ODOO_URL", "http://localhost:8069")
+    ODOO_DB = os.environ.get("ODOO_DB", "")
+    
+    if not ODOO_DB:
+        print("[Odoo Auth Error] - ODOO_DB is not set in environment variables.")
+        return {"success": False, "error": "Configuration error: ODOO_DB is not set."}
+
+    try:
+        print(f"[Odoo Auth Debug] - Attempting to authenticate user '{username}' on DB '{ODOO_DB}' at '{ODOO_URL}'")
+        common = xmlrpc.client.ServerProxy(f'{ODOO_URL}/xmlrpc/2/common')
+        uid = common.authenticate(ODOO_DB, username, password, {})
+        print(f"[Odoo Auth Debug] - Authentication result UID: {uid}")
+        
+        if uid:
+            models = xmlrpc.client.ServerProxy(f'{ODOO_URL}/xmlrpc/2/object')
+            
+            # Check if user has access to sales
+            try:
+                has_sales_access = models.execute_kw(ODOO_DB, uid, password, 'res.users', 'has_group', ['sales_team.group_sale_salesman'])
+                print(f"[Odoo Auth Debug] - has_sales_access: {has_sales_access}")
+            except Exception as e:
+                print(f"[Odoo Auth Debug] - Exception during has_group check: {e}")
+                has_sales_access = False
+            
+            if not has_sales_access:
+                print(f"[Odoo Auth Error] - User {username} does not have sales access (sales_team.group_sale_salesman).")
+                # Also try checking if they are just an internal user
+                is_employee = models.execute_kw(ODOO_DB, uid, password, 'res.users', 'has_group', ['base.group_user'])
+                print(f"[Odoo Auth Debug] - is_employee (base.group_user): {is_employee}")
+                return {"success": False, "error": f"Authenticated successfully, but user lacks the required sales permissions (sales_team.group_sale_salesman). Employee access: {is_employee}"}
+
+            user_data = models.execute_kw(ODOO_DB, uid, password, 'res.users', 'read', [[uid]], {'fields': ['name', 'login']})
+            if user_data:
+                return {
+                    "success": True,
+                    "user_data": {
+                        "uid": uid,
+                        "name": user_data[0].get("name"),
+                        "login": user_data[0].get("login")
+                    }
+                }
+            else:
+                return {"success": False, "error": "Could not read user data after authentication."}
+        else:
+            print(f"[Odoo Auth Error] - common.authenticate returned False/None for {username}.")
+            return {"success": False, "error": "Invalid username or password."}
+    except Exception as e:
+        import traceback
+        print(f"[Odoo Auth Error] - Authentication failed with exception:")
+        traceback.print_exc()
+        return {"success": False, "error": f"Server error during authentication: {str(e)}"}

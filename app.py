@@ -11,7 +11,7 @@ from odoo_service import (
     odoo_check_client, odoo_create_client, odoo_search_product,
     odoo_create_quotation, odoo_search_commercial, odoo_list_companies
 )
-from auth import auth_bp, login_required, init_db
+from auth import auth_bp, login_required
 
 app = Flask(__name__)
 app.secret_key = os.environ.get("SECRET_KEY", "icg-copilot-super-secret-2025")
@@ -20,9 +20,7 @@ app.config["PERMANENT_SESSION_LIFETIME"] = 3600 * 8  # 8 hours
 # Register auth routes (/login, /logout)
 app.register_blueprint(auth_bp)
 
-# Ensure users table exists on startup
-with app.app_context():
-    init_db()
+
 
 # ─── STEPS ───
 STEP_VERIFY_COMMERCIAL = "VERIFY_COMMERCIAL"
