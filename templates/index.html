@@ -154,7 +154,7 @@
             const typingId = appendTyping();
 
             try {
-                const response = await fetch('/api/chat', {
+                const response = await fetch('/chatbot/api/chat', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ message: msg, session_id: sessionId })
