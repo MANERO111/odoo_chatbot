@@ -7,6 +7,23 @@ def get_config():
     ODOO_API_KEY = os.environ.get("ODOO_API_KEY", "your_secure_api_key_here")
     return ODOO_URL, ODOO_API_KEY
 
+def odoo_list_companies():
+    """Return a list of all companies from Odoo: [{"id": 1, "name": "..."}, ...]"""
+    ODOO_URL, ODOO_API_KEY = get_config()
+    try:
+        response = requests.post(
+            f"{ODOO_URL}/api/list_companies",
+            json={"params": {}},
+            headers={"X-API-KEY": ODOO_API_KEY},
+            timeout=5
+        )
+        if response.status_code == 200:
+            return response.json().get('result', [])
+        return []
+    except requests.RequestException as e:
+        print(f"[Odoo Sync Error] - list_companies failed: {e}")
+        return []
+
 def odoo_check_client(name, phone):
     ODOO_URL, ODOO_API_KEY = get_config()
     try:
@@ -73,12 +90,12 @@ def odoo_search_product(product_name):
         print(f"[Odoo Sync Error] - search_product failed: {e}")
         return None
 
-def odoo_create_quotation(partner_id, products, promo_code=None):
+def odoo_create_quotation(partner_id, products, promo_code=None, discount=None):
     ODOO_URL, ODOO_API_KEY = get_config()
     try:
         response = requests.post(
             f"{ODOO_URL}/api/create_quotation",
-            json={"params": {"partner_id": partner_id, "products": products, "promo_code": promo_code}},
+            json={"params": {"partner_id": partner_id, "products": products, "promo_code": promo_code, "discount": discount}},
             headers={"X-API-KEY": ODOO_API_KEY},
             timeout=10
         )

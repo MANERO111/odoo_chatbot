@@ -1,29 +1,46 @@
 import os
 import json
-from flask import Flask, request, jsonify, render_template
+from flask import Flask, request, jsonify, render_template, session
 from dotenv import load_dotenv
 
 load_dotenv()
 
-from utils import set_state, get_state, clear_state, generate_choice_message
+from utils import set_state, get_state, clear_state, generate_choice_message, generate_company_choice_message
 from ai_service import extract_name, extract_order_products, extract_client_details, resolve_product_choice, is_confirmation, is_denial
-from odoo_service import odoo_check_client, odoo_create_client, odoo_search_product, odoo_create_quotation, odoo_search_commercial
+from odoo_service import (
+    odoo_check_client, odoo_create_client, odoo_search_product,
+    odoo_create_quotation, odoo_search_commercial, odoo_list_companies
+)
+from auth import auth_bp, login_required, init_db
 
 app = Flask(__name__)
+app.secret_key = os.environ.get("SECRET_KEY", "icg-copilot-super-secret-2025")
+app.config["PERMANENT_SESSION_LIFETIME"] = 3600 * 8  # 8 hours
+
+# Register auth routes (/login, /logout)
+app.register_blueprint(auth_bp)
+
+# Ensure users table exists on startup
+with app.app_context():
+    init_db()
 
 # ─── STEPS ───
 STEP_VERIFY_COMMERCIAL = "VERIFY_COMMERCIAL"
+STEP_CHOOSE_COMPANY    = "CHOOSE_COMPANY"       # NEW – only when Odoo has > 1 company
 STEP_ASK_CLIENT_NAME   = "ASK_CLIENT_NAME"
 STEP_CREATE_CLIENT     = "CREATE_CLIENT"
 STEP_WAIT_ORDER        = "WAIT_ORDER"
 STEP_CONFIRM_MORE      = "CONFIRM_MORE"
 STEP_CHOOSE_PRODUCT    = "CHOOSE_PRODUCT"
+STEP_ASK_DISCOUNT      = "ASK_DISCOUNT"
 
 @app.route('/')
+@login_required
 def index():
-    return render_template('index.html')
+    return render_template('index.html', username=session.get('username', ''))
 
 @app.route('/api/chat', methods=['POST'])
+@login_required
 def chat():
     try:
         data = request.json
@@ -43,12 +60,66 @@ def chat():
             comm = odoo_search_commercial(name)
 
             if comm and comm.get("found"):
-                set_state(session_id, STEP_ASK_CLIENT_NAME,
-                          commercial_name=comm["name"],
-                          commercial_id=comm["user_id"])
-                return reply(f"Marhba bik {comm['name']}! Chno smit l-client li bghiti t-dir lih la commande?")
+                # Fetch companies to decide whether to ask
+                companies = odoo_list_companies()
+
+                if len(companies) > 1:
+                    # Store everything and ask which company
+                    set_state(session_id, STEP_CHOOSE_COMPANY,
+                              commercial_name=comm["name"],
+                              commercial_id=comm["user_id"],
+                              companies=companies)
+                    choice_msg = generate_company_choice_message(companies)
+                    return reply(
+                        f"Marhba bik {comm['name']}! "
+                        f"3ndna bzzaf dyal l-companies f Odoo. Afak khtar wahda:\n\n{choice_msg}"
+                    )
+                else:
+                    # Single company – skip straight to client step
+                    company_id   = companies[0]["id"]   if companies else None
+                    company_name = companies[0]["name"] if companies else None
+                    set_state(session_id, STEP_ASK_CLIENT_NAME,
+                              commercial_name=comm["name"],
+                              commercial_id=comm["user_id"],
+                              company_id=company_id,
+                              company_name=company_name)
+                    return reply(f"Marhba bik {comm['name']}! Chno smit l-client li bghiti t-dir lih la commande?")
             else:
                 return reply(f"Malqitouch l-commercial '{name}' f Odoo. Hawel mra khra.")
+
+        # ──────────────────────────────────────────────
+        # STEP 1b – Choose which company (multi-company)
+        # ──────────────────────────────────────────────
+        elif current_step == STEP_CHOOSE_COMPANY:
+            companies = state.get("companies", [])
+            chosen_company = None
+
+            # Try to parse a number
+            try:
+                idx = int(incoming_msg.strip()) - 1
+                if 0 <= idx < len(companies):
+                    chosen_company = companies[idx]
+            except ValueError:
+                # Try matching by name substring
+                for c in companies:
+                    if incoming_msg.strip().lower() in c["name"].lower():
+                        chosen_company = c
+                        break
+
+            if not chosen_company:
+                # Re-show the list
+                choice_msg = generate_company_choice_message(companies)
+                return reply(f"Malqitouch. Afak jawb b rqm sahih:\n\n{choice_msg}")
+
+            set_state(session_id, STEP_ASK_CLIENT_NAME,
+                      commercial_name=state.get("commercial_name"),
+                      commercial_id=state.get("commercial_id"),
+                      company_id=chosen_company["id"],
+                      company_name=chosen_company["name"])
+            return reply(
+                f"Mzyan! Khtarti '{chosen_company['name']}'. "
+                f"Chno smit l-client li bghiti t-dir lih la commande?"
+            )
 
         # ──────────────────────────────────────────────
         # STEP 2 – Get the Client name
@@ -63,8 +134,10 @@ def chat():
                 last_name = state.get("last_tried_client", incoming_msg)
                 set_state(session_id, STEP_CREATE_CLIENT,
                           commercial_name=state.get("commercial_name"),
+                          company_id=state.get("company_id"),
+                          company_name=state.get("company_name"),
                           client_name=last_name)
-                return reply(f"Okey, ghadi nssawbo client jdid. Afak 3tini smiytho, numero d-telephone, o l-address dyalo.")
+                return reply("Okey, ghadi nssawbo client jdid. Afak 3tini smiytho, numero d-telephone, o l-address dyalo.")
 
             client_name = extract_name(incoming_msg)
             client_data = odoo_check_client(client_name, "")
@@ -72,6 +145,8 @@ def chat():
             if client_data and client_data.get("found"):
                 set_state(session_id, STEP_WAIT_ORDER,
                           commercial_name=state.get("commercial_name"),
+                          company_id=state.get("company_id"),
+                          company_name=state.get("company_name"),
                           client_id=client_data["partner_id"],
                           client_name=client_name,
                           accumulated_products=[])
@@ -81,6 +156,8 @@ def chat():
                 # Stay in ASK_CLIENT_NAME so they can retry
                 set_state(session_id, STEP_ASK_CLIENT_NAME,
                           commercial_name=state.get("commercial_name"),
+                          company_id=state.get("company_id"),
+                          company_name=state.get("company_name"),
                           last_tried_client=client_name)
                 return reply(f"Malqitouch l-client '{client_name}'. Hawel mra khra, wla gol 'creer jdid' bash nssawbo lih hissab.")
 
@@ -98,6 +175,8 @@ def chat():
                 if client_id:
                     set_state(session_id, STEP_WAIT_ORDER,
                               commercial_name=state.get("commercial_name"),
+                              company_id=state.get("company_id"),
+                              company_name=state.get("company_name"),
                               client_id=client_id,
                               client_name=name,
                               accumulated_products=[])
@@ -137,7 +216,9 @@ def chat():
 
             # Second: check if they said no / finished
             if is_denial(incoming_msg):
-                return finalize_quotation(session_id)
+                state.pop("step", None)
+                set_state(session_id, STEP_ASK_DISCOUNT, **state)
+                return reply("Wach 3ndk chi remise l had l-client? (Ila la gol 'la', wla 3tini l-pourcentage bhal '20')")
 
             # Third: check if they said yes
             if is_confirmation(incoming_msg):
@@ -167,6 +248,26 @@ def chat():
                 return process_order_logic(session_id)
             else:
                 return reply("Afak khtar rqm dyal l-moumtaj mn l-qaima.")
+
+        # ──────────────────────────────────────────────
+        # STEP 7 – Ask for discount
+        # ──────────────────────────────────────────────
+        elif current_step == STEP_ASK_DISCOUNT:
+            if is_denial(incoming_msg):
+                state["discount"] = None
+                state.pop("step", None)
+                set_state(session_id, STEP_ASK_DISCOUNT, **state)
+                return finalize_quotation(session_id)
+            else:
+                import re
+                match = re.search(r'\d+(\.\d+)?', incoming_msg)
+                if match:
+                    state["discount"] = float(match.group())
+                    state.pop("step", None)
+                    set_state(session_id, STEP_ASK_DISCOUNT, **state)
+                    return finalize_quotation(session_id)
+                else:
+                    return reply("Mafhamtch l-pourcentage. Afak 3tini rqm (ex: 20) wla gol 'la'.")
 
         return reply("Smhlia, mafhamtch. Taqdar t-3awd?")
 
@@ -231,20 +332,24 @@ def process_order_logic(session_id):
 def finalize_quotation(session_id):
     state       = get_state(session_id)
     accumulated = state.get("accumulated_products", [])
+    discount    = state.get("discount")
 
     if not accumulated:
         return reply("Ma-darti hta moumtaj. Chno bghiti t-order?")
 
-    result          = odoo_create_quotation(state["client_id"], accumulated, state.get("promo_code"))
+    # Passing discount as a named argument to ensure compatibility and trigger a reload
+    result          = odoo_create_quotation(state["client_id"], accumulated, promo_code=state.get("promo_code"), discount=discount)
     commercial_name = state.get("commercial_name", "")
+    company_name    = state.get("company_name", "")
     order_name      = result.get("order_name", "???") if result else "???"
 
     clear_state(session_id)
     set_state(session_id, STEP_VERIFY_COMMERCIAL)
 
     summary = "\n".join([f"  - {pr['name']} x{pr['qty']}" for pr in accumulated])
+    company_line = f" ({company_name})" if company_name else ""
     return reply(
-        f"Tm b-njah! L-commande {order_name} tssawbat l-client '{state.get('client_name', '')}'.\n\n"
+        f"Tm b-njah! L-commande {order_name} tssawbat l-client '{state.get('client_name', '')}'{company_line}.\n\n"
         f"Summary:\n{summary}\n\n"
         f"Chokran {commercial_name}! Ila bghiti t-dir commande khora, kteb smitk."
     )

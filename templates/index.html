@@ -8,28 +8,111 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&display=swap" rel="stylesheet">
+    <style>
+        /* ── Sidebar user badge ── */
+        .user-badge {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            background: rgba(255,255,255,0.04);
+            border: 1px solid rgba(255,255,255,0.08);
+            border-radius: 14px;
+            padding: 12px 14px;
+            margin-bottom: 20px;
+        }
+        .user-avatar {
+            width: 34px;
+            height: 34px;
+            border-radius: 50%;
+            background: linear-gradient(135deg, #6366f1, #c084fc);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 800;
+            font-size: 13px;
+            flex-shrink: 0;
+        }
+        .user-info { flex-grow: 1; overflow: hidden; }
+        .user-name {
+            font-size: 13px;
+            font-weight: 600;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .user-role {
+            font-size: 10px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            color: #94a3b8;
+        }
+
+        /* ── Logout button ── */
+        .btn-logout {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            width: 100%;
+            padding: 11px;
+            margin-top: 16px;
+            background: rgba(239, 68, 68, 0.08);
+            border: 1px solid rgba(239, 68, 68, 0.2);
+            border-radius: 12px;
+            color: #fca5a5;
+            font-size: 13px;
+            font-weight: 600;
+            cursor: pointer;
+            text-decoration: none;
+            transition: background 0.2s, border-color 0.2s, transform 0.15s;
+        }
+        .btn-logout:hover {
+            background: rgba(239, 68, 68, 0.18);
+            border-color: rgba(239, 68, 68, 0.4);
+            transform: translateY(-1px);
+        }
+        .btn-logout:active { transform: translateY(0); }
+    </style>
 </head>
 <body>
     <div class="app-container">
         <!-- Sidebar -->
         <div class="sidebar">
-            <div class="logo">icg.copilot</div>
-            
+            <div class="logo">Commande ICG</div>
+
+            <!-- Logged-in user -->
+            <div class="user-badge">
+                <div class="user-avatar">{{ username[0].upper() if username else '?' }}</div>
+                <div class="user-info">
+                    <div class="user-name">{{ username }}</div>
+                    <div class="user-role">Operator</div>
+                </div>
+            </div>
+
             <div class="session-info">
                 <div class="info-card">
                     <div class="info-label">Sales Rep</div>
                     <div id="display-commercial" class="info-value">Not Identified</div>
                 </div>
                 <div class="info-card">
+                    <div class="info-label">Active Company</div>
+                    <div id="display-company" class="info-value">—</div>
+                </div>
+                <div class="info-card">
                     <div class="info-label">Active Client</div>
                     <div id="display-client" class="info-value">None</div>
                 </div>
             </div>
-            
+
             <div class="status-indicator">
                 <div class="info-label">System Status</div>
                 <div class="info-value" style="color: #4ade80;">● Online</div>
             </div>
+
+            <!-- Logout -->
+            <a href="/logout" class="btn-logout" id="btn-logout">
+                <span>⎋</span> Sign Out
+            </a>
         </div>
 
         <!-- Main Chat -->
@@ -42,19 +125,20 @@
 
             <form id="chat-form" class="input-container">
                 <input type="text" id="user-input" placeholder="Type your message..." autocomplete="off">
-                <button type="submit">Send</button>
+                <button type="submit" id="send-btn">Send</button>
             </form>
         </div>
     </div>
 
     <script>
-        const chatForm = document.getElementById('chat-form');
-        const userInput = document.getElementById('user-input');
+        const chatForm     = document.getElementById('chat-form');
+        const userInput    = document.getElementById('user-input');
         const chatMessages = document.getElementById('chat-messages');
-        const displayComm = document.getElementById('display-commercial');
-        const displayClient = document.getElementById('display-client');
+        const displayComm  = document.getElementById('display-commercial');
+        const displayComp  = document.getElementById('display-company');
+        const displayClient= document.getElementById('display-client');
 
-        // Generate a simple session ID
+        // Unique session ID per browser tab
         const sessionId = 'web_' + Math.random().toString(36).substr(2, 9);
 
         chatForm.addEventListener('submit', async (e) => {
@@ -62,29 +146,39 @@
             const msg = userInput.value.trim();
             if (!msg) return;
 
-            // Add user message to UI
             appendMessage(msg, 'user');
             userInput.value = '';
+            userInput.disabled = true;
+
+            // Typing indicator
+            const typingId = appendTyping();
 
             try {
                 const response = await fetch('/api/chat', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        message: msg,
-                        session_id: sessionId
-                    })
+                    body: JSON.stringify({ message: msg, session_id: sessionId })
                 });
 
+                removeTyping(typingId);
+
+                if (response.status === 401 || response.redirected) {
+                    window.location.href = '/login';
+                    return;
+                }
+
                 const data = await response.json();
-                
                 if (data.reply) {
                     appendMessage(data.reply, 'bot');
                     updateStatus(data.reply);
                 }
             } catch (err) {
+                removeTyping(typingId);
                 console.error(err);
                 appendMessage("Sorry, I'm having trouble connecting to the server.", 'bot');
+            } finally {
+                userInput.disabled = false;
+                userInput.focus();
             }
         });
 
@@ -96,21 +190,58 @@
             chatMessages.scrollTop = chatMessages.scrollHeight;
         }
 
+        function appendTyping() {
+            const id  = 'typing-' + Date.now();
+            const div = document.createElement('div');
+            div.className = 'message bot';
+            div.id = id;
+            div.innerHTML = '<span class="typing-dots"><span>.</span><span>.</span><span>.</span></span>';
+            chatMessages.appendChild(div);
+            chatMessages.scrollTop = chatMessages.scrollHeight;
+            return id;
+        }
+
+        function removeTyping(id) {
+            const el = document.getElementById(id);
+            if (el) el.remove();
+        }
+
         function updateStatus(reply) {
-            // Very basic logic to update sidebar based on bot's mention of names
-            // In a real app, the API would return a 'metadata' object with these details
             if (reply.includes("Marhba bik")) {
                 const name = reply.split("Marhba bik ")[1].split("!")[0];
                 displayComm.innerText = name;
+            }
+            if (reply.includes("Khtarti '")) {
+                const company = reply.split("Khtarti '")[1].split("'")[0];
+                displayComp.innerText = company;
             }
             if (reply.includes("client '")) {
                 const name = reply.split("client '")[1].split("'")[0];
                 displayClient.innerText = name;
             }
-            if (reply.includes("Talab raqm #")) {
-                 displayClient.innerText = "None";
+            if (reply.includes("kteb smitk")) {
+                // Flow restarted
+                displayComm.innerText   = 'Not Identified';
+                displayComp.innerText   = '—';
+                displayClient.innerText = 'None';
             }
         }
     </script>
+
+    <style>
+        /* Typing animation */
+        .typing-dots span {
+            animation: blink 1.2s infinite;
+            font-size: 22px;
+            line-height: 1;
+            opacity: 0;
+        }
+        .typing-dots span:nth-child(2) { animation-delay: 0.2s; }
+        .typing-dots span:nth-child(3) { animation-delay: 0.4s; }
+        @keyframes blink {
+            0%, 80%, 100% { opacity: 0; }
+            40%            { opacity: 1; }
+        }
+    </style>
 </body>
 </html>

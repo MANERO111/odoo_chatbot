@@ -31,6 +31,15 @@ def generate_choice_message(products):
         msg += f"{i+1}. {p['name']} (Tman: {p.get('price', 'N/A')} Dh)\n"
     return msg
 
+def generate_company_choice_message(companies):
+    """
+    Format the list of companies as a numbered choice message.
+    """
+    msg = "Lqina bzzaf dyal l-companies. Afak khtar rqm dyal l-company li bghiti:\n"
+    for i, c in enumerate(companies):
+        msg += f"{i+1}. {c['name']}\n"
+    return msg
+
 def extract_meta_whatsapp_data(data):
     """
     Extract sender and body from Meta WhatsApp Cloud API webhook JSON.
