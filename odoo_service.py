@@ -57,6 +57,27 @@ def odoo_search_commercial(name):
         print(f"[Odoo Sync Error] - search_commercial failed: {e}")
         return None
 
+def odoo_get_commercial_by_uid(uid, name):
+    """Look up the commercial (res.users) record by Odoo UID.
+    Returns {"found": True, "name": ..., "user_id": ...} or {"found": False}."""
+    ODOO_URL, ODOO_API_KEY = get_config()
+    # First try by name (same endpoint as search_commercial)
+    try:
+        response = requests.post(
+            f"{ODOO_URL}/api/search_commercial",
+            json={"params": {"name": name}},
+            headers={"X-API-KEY": ODOO_API_KEY},
+            timeout=5
+        )
+        if response.status_code == 200:
+            result = response.json().get('result', {"found": False})
+            if result.get("found"):
+                return result
+    except requests.RequestException as e:
+        print(f"[Odoo Sync Error] - get_commercial_by_uid (name lookup) failed: {e}")
+    # Fallback: use uid as the user_id directly
+    return {"found": True, "name": name, "user_id": uid}
+
 def odoo_create_client(name, phone, email=None, address=None):
     ODOO_URL, ODOO_API_KEY = get_config()
     try:

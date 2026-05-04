@@ -9,7 +9,7 @@ from utils import set_state, get_state, clear_state, generate_choice_message, ge
 from ai_service import extract_name, extract_order_products, extract_client_details, resolve_product_choice, is_confirmation, is_denial
 from odoo_service import (
     odoo_check_client, odoo_create_client, odoo_search_product,
-    odoo_create_quotation, odoo_search_commercial, odoo_list_companies
+    odoo_create_quotation, odoo_list_companies
 )
 from auth import auth_bp, login_required
 
@@ -23,8 +23,7 @@ app.wsgi_app = ProxyFix(app.wsgi_app, x_proto=1, x_host=1, x_prefix=1)
 
 
 # ─── STEPS ───
-STEP_VERIFY_COMMERCIAL = "VERIFY_COMMERCIAL"
-STEP_CHOOSE_COMPANY    = "CHOOSE_COMPANY"       # NEW – only when Odoo has > 1 company
+STEP_CHOOSE_COMPANY    = "CHOOSE_COMPANY"       # Select company (when Odoo has > 1)
 STEP_ASK_CLIENT_NAME   = "ASK_CLIENT_NAME"
 STEP_CREATE_CLIENT     = "CREATE_CLIENT"
 STEP_WAIT_ORDER        = "WAIT_ORDER"
@@ -35,7 +34,33 @@ STEP_ASK_DISCOUNT      = "ASK_DISCOUNT"
 @app.route('/')
 @login_required
 def index():
+    # Force re-seed when loading the main page
+    from auth import _init_chat_state
+    _init_chat_state(session.get('username'), session.get('user_id'), session.get('username'))
+    #
     return render_template('index.html', username=session.get('username', ''))
+
+@app.route('/api/greeting', methods=['GET'])
+@login_required
+def greeting():
+    """Return the initial bot message based on the pre-seeded state."""
+    session_id = session.get("username", "default_user")
+    state      = get_state(session_id)
+    step       = state.get("step", STEP_CHOOSE_COMPANY)
+    comm_name  = state.get("commercial_name", session.get("username", ""))
+
+    if step == STEP_CHOOSE_COMPANY:
+        companies  = state.get("companies", [])
+        choice_msg = generate_company_choice_message(companies)
+        msg = (
+            f"Marhba bik {comm_name}! "
+            f"3ndna bzzaf dyal l-companies f Odoo. Afak khtar wahda:\n\n{choice_msg}"
+        )
+    else:
+        msg = f"Marhba bik {comm_name}! Chno smit l-client li bghiti t-dir lih la commande?"
+
+    return jsonify({"reply": msg, "commercial_name": comm_name})
+
 
 @app.route('/api/chat', methods=['POST'])
 @login_required
@@ -43,52 +68,18 @@ def chat():
     try:
         data = request.json
         incoming_msg = data.get("message", "").strip()
-        session_id  = data.get("session_id", "default_user")
+        # Use the logged-in username as the session key so state is per-user
+        session_id  = session.get("username", data.get("session_id", "default_user"))
 
         state        = get_state(session_id)
-        current_step = state.get("step", STEP_VERIFY_COMMERCIAL)
+        current_step = state.get("step", STEP_CHOOSE_COMPANY)
 
         print(f"[CHAT] Session: {session_id} | Step: {current_step} | Msg: {incoming_msg}")
 
         # ──────────────────────────────────────────────
-        # STEP 1 – Identify the Commercial
+        # STEP 1 – Choose which company (multi-company)
         # ──────────────────────────────────────────────
-        if current_step == STEP_VERIFY_COMMERCIAL:
-            name = extract_name(incoming_msg)
-            comm = odoo_search_commercial(name)
-
-            if comm and comm.get("found"):
-                # Fetch companies to decide whether to ask
-                companies = odoo_list_companies()
-
-                if len(companies) > 1:
-                    # Store everything and ask which company
-                    set_state(session_id, STEP_CHOOSE_COMPANY,
-                              commercial_name=comm["name"],
-                              commercial_id=comm["user_id"],
-                              companies=companies)
-                    choice_msg = generate_company_choice_message(companies)
-                    return reply(
-                        f"Marhba bik {comm['name']}! "
-                        f"3ndna bzzaf dyal l-companies f Odoo. Afak khtar wahda:\n\n{choice_msg}"
-                    )
-                else:
-                    # Single company – skip straight to client step
-                    company_id   = companies[0]["id"]   if companies else None
-                    company_name = companies[0]["name"] if companies else None
-                    set_state(session_id, STEP_ASK_CLIENT_NAME,
-                              commercial_name=comm["name"],
-                              commercial_id=comm["user_id"],
-                              company_id=company_id,
-                              company_name=company_name)
-                    return reply(f"Marhba bik {comm['name']}! Chno smit l-client li bghiti t-dir lih la commande?")
-            else:
-                return reply(f"Malqitouch l-commercial '{name}' f Odoo. Hawel mra khra.")
-
-        # ──────────────────────────────────────────────
-        # STEP 1b – Choose which company (multi-company)
-        # ──────────────────────────────────────────────
-        elif current_step == STEP_CHOOSE_COMPANY:
+        if current_step == STEP_CHOOSE_COMPANY:
             companies = state.get("companies", [])
             chosen_company = None
 
@@ -121,7 +112,6 @@ def chat():
 
         # ──────────────────────────────────────────────
         # STEP 2 – Get the Client name
-        # ──────────────────────────────────────────────
         elif current_step == STEP_ASK_CLIENT_NAME:
             msg_lower = incoming_msg.lower()
             # Check if user wants to create a new client
@@ -342,14 +332,28 @@ def finalize_quotation(session_id):
     order_name      = result.get("order_name", "???") if result else "???"
 
     clear_state(session_id)
-    set_state(session_id, STEP_VERIFY_COMMERCIAL)
+    # Re-seed state so the user can immediately start a new order
+    from auth import _init_chat_state
+    _init_chat_state(session_id, session.get("user_id"), session.get("username"))
+
+    # Find the new initial step to tell the user what to do next
+    new_state    = get_state(session_id)
+    next_step    = new_state.get("step", STEP_ASK_CLIENT_NAME)
+    new_companies = new_state.get("companies", [])
 
     summary = "\n".join([f"  - {pr['name']} x{pr['qty']}" for pr in accumulated])
     company_line = f" ({company_name})" if company_name else ""
+
+    if next_step == STEP_CHOOSE_COMPANY:
+        choice_msg = generate_company_choice_message(new_companies)
+        followup = f"\n\nBghiti dir commande khora? Khtar l-company:\n{choice_msg}"
+    else:
+        followup = f"\n\nBghiti dir commande khora? Chno smit l-client?"
+
     return reply(
         f"Tm b-njah! L-commande {order_name} tssawbat l-client '{state.get('client_name', '')}'{company_line}.\n\n"
         f"Summary:\n{summary}\n\n"
-        f"Chokran {commercial_name}! Ila bghiti t-dir commande khora, kteb smitk."
+        f"Chokran {commercial_name}!{followup}"
     )
 
 

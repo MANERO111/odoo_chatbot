@@ -118,8 +118,8 @@
         <!-- Main Chat -->
         <div class="chat-area">
             <div id="chat-messages">
-                <div class="message bot">
-                    Salam! Marhba bik f icg co-pilot. Chno hoa l-ism dyalk a commercial?
+                <div class="message bot" id="greeting-msg">
+                    <span class="typing-dots"><span>.</span><span>.</span><span>.</span></span>
                 </div>
             </div>
 
@@ -138,8 +138,26 @@
         const displayComp  = document.getElementById('display-company');
         const displayClient= document.getElementById('display-client');
 
-        // Unique session ID per browser tab
+        // Unique session ID per browser tab (sent along but server uses Flask session username)
         const sessionId = 'web_' + Math.random().toString(36).substr(2, 9);
+
+        // ── Load initial greeting from server on page load ──
+        (async () => {
+            try {
+                const res  = await fetch('/api/greeting');
+                const data = await res.json();
+                const greetEl = document.getElementById('greeting-msg');
+                if (greetEl) {
+                    greetEl.innerText = data.reply;
+                }
+                if (data.commercial_name) {
+                    displayComm.innerText = data.commercial_name;
+                }
+            } catch (e) {
+                const greetEl = document.getElementById('greeting-msg');
+                if (greetEl) greetEl.innerText = 'Salam! Kteb smit l-client li bghiti t-dir lih la commande.';
+            }
+        })();
 
         chatForm.addEventListener('submit', async (e) => {
             e.preventDefault();
@@ -155,6 +173,7 @@
 
             try {
                 const response = await fetch('/chatbot/api/chat', {
+                //const response = await fetch('/api/chat', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ message: msg, session_id: sessionId })
@@ -207,23 +226,33 @@
         }
 
         function updateStatus(reply) {
-            if (reply.includes("Marhba bik")) {
-                const name = reply.split("Marhba bik ")[1].split("!")[0];
-                displayComm.innerText = name;
-            }
+            // Update company when user selects one
             if (reply.includes("Khtarti '")) {
                 const company = reply.split("Khtarti '")[1].split("'")[0];
                 displayComp.innerText = company;
             }
-            if (reply.includes("client '")) {
-                const name = reply.split("client '")[1].split("'")[0];
+            // Update client when found or created
+            if (reply.includes("Lqina l-client '") || reply.includes("L-client '")) {
+                const part = reply.includes("Lqina l-client '") ? reply.split("Lqina l-client '")[1] : reply.split("L-client '")[1];
+                const name = part.split("'")[0];
                 displayClient.innerText = name;
             }
-            if (reply.includes("kteb smitk")) {
-                // Flow restarted
-                displayComm.innerText   = 'Not Identified';
+            // New order started – reset client
+            if (reply.includes("Chno smit l-client")) {
+                displayClient.innerText = 'None';
+            }
+            // Order confirmed – reset company + client, reload greeting for next order
+            if (reply.includes("Tm b-njah!")) {
                 displayComp.innerText   = '—';
                 displayClient.innerText = 'None';
+                // Reload greeting to show company list / client prompt for next order
+//                setTimeout(async () => {
+//                    try {
+//                        const res  = await fetch('/api/greeting');
+//                        const data = await res.json();
+//                        if (data.reply) appendMessage(data.reply, 'bot');
+//                    } catch(_) {}
+//                }, 600);
             }
         }
     </script>
