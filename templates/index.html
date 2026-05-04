@@ -110,7 +110,8 @@
             </div>
 
             <!-- Logout -->
-            <a href="{{ request.script_root }}/logout" class="btn-logout" id="btn-logout">
+            <!-- <a href="{{ request.script_root }}/logout" class="btn-logout" id="btn-logout"> -->
+            <a href="/logout" class="btn-logout" id="btn-logout">
                 <span>⎋</span> Sign Out
             </a>
         </div>
@@ -172,8 +173,8 @@
             const typingId = appendTyping();
 
             try {
-                const response = await fetch('/chatbot/api/chat', {
-                //const response = await fetch('/api/chat', {
+                // const response = await fetch('/chatbot/api/chat', {
+                const response = await fetch('/api/chat', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ message: msg, session_id: sessionId })

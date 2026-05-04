@@ -3,24 +3,45 @@ import os
 import requests
 import json
 
-user_states = {}
+STATE_FILE = "user_states.json"
+
+def _load_states():
+    if os.path.exists(STATE_FILE):
+        try:
+            with open(STATE_FILE, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            return {}
+    return {}
+
+def _save_states(states):
+    try:
+        with open(STATE_FILE, "w", encoding="utf-8") as f:
+            json.dump(states, f)
+    except Exception as e:
+        print(f"[State Save Error] {e}")
 
 def set_state(sender, step, **kwargs):
     """Update or initialize conversation state for a specific user."""
-    if sender not in user_states:
-        user_states[sender] = {}
-    user_states[sender]["step"] = step
+    states = _load_states()
+    if sender not in states:
+        states[sender] = {}
+    states[sender]["step"] = step
     for key, value in kwargs.items():
-        user_states[sender][key] = value
+        states[sender][key] = value
+    _save_states(states)
 
 def get_state(sender):
     """Retrieve the current state dictionary for a user."""
-    return user_states.get(sender, {})
+    states = _load_states()
+    return states.get(sender, {})
 
 def clear_state(sender):
     """Clear user conversation state, effectively restarting the flow."""
-    if sender in user_states:
-        del user_states[sender]
+    states = _load_states()
+    if sender in states:
+        del states[sender]
+        _save_states(states)
 
 def generate_choice_message(products):
     """
@@ -40,54 +61,54 @@ def generate_company_choice_message(companies):
         msg += f"{i+1}. {c['name']}\n"
     return msg
 
-def extract_meta_whatsapp_data(data):
-    """
-    Extract sender and body from Meta WhatsApp Cloud API webhook JSON.
-    """
-    try:
-        if 'entry' in data:
-            for entry in data['entry']:
-                for change in entry.get('changes', []):
-                    value = change.get('value', {})
-                    if 'messages' in value:
-                        for message in value['messages']:
-                            if 'text' in message:
-                                return message['text']['body'], message['from']
-    except Exception as e:
-        print(f"[Meta Parsing Error] {e}")
-    return None, None
+# def extract_meta_whatsapp_data(data):
+#     """
+#     Extract sender and body from Meta WhatsApp Cloud API webhook JSON.
+#     """
+#     try:
+#         if 'entry' in data:
+#             for entry in data['entry']:
+#                 for change in entry.get('changes', []):
+#                     value = change.get('value', {})
+#                     if 'messages' in value:
+#                         for message in value['messages']:
+#                             if 'text' in message:
+#                                 return message['text']['body'], message['from']
+#     except Exception as e:
+#         print(f"[Meta Parsing Error] {e}")
+#     return None, None
 
-def send_whatsapp_message(to_phone, body):
-    """
-    Send a message via Meta WhatsApp Cloud API.
-    """
-    if os.environ.get("SIMULATION_MODE") == "true":
-        print(f"\n>>> [BOT REPLY TO {to_phone}]: {body}\n")
-        return {"status": "simulated"}
+# def send_whatsapp_message(to_phone, body):
+#     """
+#     Send a message via Meta WhatsApp Cloud API.
+#     """
+#     if os.environ.get("SIMULATION_MODE") == "true":
+#         print(f"\n>>> [BOT REPLY TO {to_phone}]: {body}\n")
+#         return {"status": "simulated"}
 
-    access_token = os.environ.get("META_ACCESS_TOKEN")
-    phone_number_id = os.environ.get("META_PHONE_NUMBER_ID")
+#     access_token = os.environ.get("META_ACCESS_TOKEN")
+#     phone_number_id = os.environ.get("META_PHONE_NUMBER_ID")
     
-    url = f"https://graph.facebook.com/v21.0/{phone_number_id}/messages"
+#     url = f"https://graph.facebook.com/v21.0/{phone_number_id}/messages"
     
-    headers = {
-        "Authorization": f"Bearer {access_token}",
-        "Content-Type": "application/json"
-    }
+#     headers = {
+#         "Authorization": f"Bearer {access_token}",
+#         "Content-Type": "application/json"
+#     }
     
-    payload = {
-        "messaging_product": "whatsapp",
-        "to": to_phone,
-        "type": "text",
-        "text": {"body": body}
-    }
+#     payload = {
+#         "messaging_product": "whatsapp",
+#         "to": to_phone,
+#         "type": "text",
+#         "text": {"body": body}
+#     }
     
-    try:
-        response = requests.post(url, headers=headers, json=payload)
-        response.raise_for_status()
-        return response.json()
-    except Exception as e:
-        print(f"[Meta Send Error] {e}")
-        if hasattr(e, 'response') and e.response:
-            print(f"Response: {e.response.text}")
-        return None
+#     try:
+#         response = requests.post(url, headers=headers, json=payload)
+#         response.raise_for_status()
+#         return response.json()
+#     except Exception as e:
+#         print(f"[Meta Send Error] {e}")
+#         if hasattr(e, 'response') and e.response:
+#             print(f"Response: {e.response.text}")
+#         return None
