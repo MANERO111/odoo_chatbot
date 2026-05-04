@@ -145,7 +145,7 @@
         // ── Load initial greeting from server on page load ──
         (async () => {
             try {
-                const res  = await fetch('/api/greeting');
+                const res  = await fetch('{{ request.script_root }}/api/greeting');
                 const data = await res.json();
                 const greetEl = document.getElementById('greeting-msg');
                 if (greetEl) {
@@ -173,7 +173,7 @@
             const typingId = appendTyping();
 
             try {
-                const response = await fetch('/chatbot/api/chat', {
+                const response = await fetch('{{ request.script_root }}/api/chat', {
                 // const response = await fetch('/api/chat', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
