@@ -112,12 +112,18 @@ def odoo_search_product(product_name):
         print(f"[Odoo Sync Error] - search_product failed: {e}")
         return None
 
-def odoo_create_quotation(partner_id, products, promo_code=None, discount=None):
+def odoo_create_quotation(partner_id, products, promo_code=None, discount=None, user_id=None):
     ODOO_URL, ODOO_API_KEY = get_config()
     try:
         response = requests.post(
             f"{ODOO_URL}/api/create_quotation",
-            json={"params": {"partner_id": partner_id, "products": products, "promo_code": promo_code, "discount": discount}},
+            json={"params": {
+                "partner_id": partner_id, 
+                "products": products, 
+                "promo_code": promo_code, 
+                "discount": discount,
+                "user_id": user_id
+            }},
             headers={"X-API-KEY": ODOO_API_KEY},
             timeout=10
         )

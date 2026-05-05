@@ -325,8 +325,14 @@ def finalize_quotation(session_id):
     if not accumulated:
         return reply("Ma-darti hta moumtaj. Chno bghiti t-order?")
 
-    # Passing discount as a named argument to ensure compatibility and trigger a reload
-    result          = odoo_create_quotation(state["client_id"], accumulated, promo_code=state.get("promo_code"), discount=discount)
+    # Passing discount and commercial_id as named arguments to ensure compatibility
+    result          = odoo_create_quotation(
+        state["client_id"], 
+        accumulated, 
+        promo_code=state.get("promo_code"), 
+        discount=discount,
+        user_id=state.get("commercial_id")
+    )
     commercial_name = state.get("commercial_name", "")
     company_name    = state.get("company_name", "")
     order_name      = result.get("order_name", "???") if result else "???"
