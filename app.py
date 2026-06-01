@@ -6,7 +6,7 @@ from werkzeug.middleware.proxy_fix import ProxyFix
 load_dotenv()
 
 from utils import set_state, get_state, clear_state, generate_choice_message, generate_company_choice_message
-from ai_service import extract_name, extract_order_products, extract_client_details, resolve_product_choice, is_confirmation, is_denial
+from ai_service import extract_name, extract_order_products, extract_client_details, resolve_product_choice, is_confirmation, is_denial, correct_product_spelling
 from odoo_service import (
     odoo_check_client, odoo_create_client, odoo_search_product,
     odoo_create_quotation, odoo_list_companies
@@ -279,7 +279,9 @@ def process_order_logic(session_id):
 
     while pending:
         p = pending.pop(0)
-        search_results = odoo_search_product(p["name"])
+        corrected_name = correct_product_spelling(p["name"])
+        print(f"[Product Search] Original: '{p['name']}' -> Corrected: '{corrected_name}'")
+        search_results = odoo_search_product(corrected_name)
 
         if not search_results:
             state["pending_products"]     = pending

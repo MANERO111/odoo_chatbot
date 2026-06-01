@@ -137,3 +137,26 @@ def resolve_product_choice(user_input, options):
         return None
     except Exception:
         return None
+
+def correct_product_spelling(product_name):
+    """
+    Correct the spelling of a product name that might contain typos (e.g., phonetic spelling).
+    """
+    prompt = (
+        f"Correct the spelling of this product name: '{product_name}'. "
+        "It might be in French, English, or Moroccan Darija. "
+        "Fix phonetic mistakes (e.g. 'tble' -> 'table', 'ecron soler' -> 'ecran solaire'). "
+        "Respond ONLY with the corrected name, nothing else."
+    )
+    try:
+        response = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0,
+            max_tokens=30
+        )
+        return response.choices[0].message.content.strip()
+    except Exception as e:
+        print(f"[AI Error] correct_product_spelling: {e}")
+        return product_name.strip()
+
