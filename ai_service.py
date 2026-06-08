@@ -126,9 +126,9 @@ def extract_navigation_intent(message):
     - "CHANGE_CLIENT": User wants to change the selected client (e.g., "change client", "client akhor", "nbdl lclient").
     - "CHANGE_PRODUCTS": User wants to clear their cart, change products, or restart product selection (e.g., "bghit n3awd nkhtar lproducts", "change products", "nbdl la commande").
     - "STEP_BACK": User just wants to go back one step (e.g., "step back", "rje3 lor", "go back", "back").
-    - null: The message is answering a question, giving a number ("1", "2"), giving a name, ordering products, or anything else.
+    - null: The message is an order (e.g., "bghit 2 magiclear gel", "3 galby creme"), answering a question, giving a number ("1", "2"), giving a name, or anything else.
     
-    CRITICAL RULE: If the user provides just a number (e.g., "1", "2") or a simple answer to a choice, it is NOT a navigation intent. Return null.
+    CRITICAL RULE: If the user provides an order with a quantity and product name (e.g., "bghit 2 magiclear", "5 pdv", "2 table") or just a simple answer, it is an ORDER, NOT a navigation intent. Return null. Do not confuse brand names (like 'magiclear') with commands (like 'clear cart').
     If in doubt, return null. Return a JSON object: {{"intent": "CHANGE_COMPANY" | "CHANGE_CLIENT" | "CHANGE_PRODUCTS" | "STEP_BACK" | null}}
     """
     try:
@@ -181,9 +181,10 @@ def correct_product_spelling(product_name):
     prompt = (
         f"Correct the spelling of this product name: '{product_name}'. "
         "It might be in French, English, or Moroccan Darija. "
-        "Fix phonetic mistakes (e.g. 'galby crime' -> 'galby creme', 'ecron soler' -> 'ecran solaire', 'gil douche' -> 'gel douche'). "
-        "CRITICAL RULE: DO NOT correct or change brand names. Preserve these exactly as typed: "
+        "Fix phonetic mistakes (e.g. 'crime' -> 'creme', 'ecron soler' -> 'ecran solaire', 'gil douche' -> 'gel douche'). "
+        "CRITICAL RULE 1: DO NOT correct or change brand names. Preserve these exactly as typed: "
         "'galby', 'magiclear', 'biomed', 'alfaderm', 'cosmetix', 'evoluderm', 'pdv', 'soivre', 'alfa' ,'reistill', 'dentyucral','cleare','davaj','capilift'. "
+        "CRITICAL RULE 2: DO NOT add any extra words. NEVER attempt to guess or auto-complete the product name. Only fix the spelling of the words provided. "
         "Respond ONLY with the corrected name, nothing else."
     )
     try:
@@ -193,7 +194,13 @@ def correct_product_spelling(product_name):
             temperature=0,
             max_tokens=30
         )
-        return response.choices[0].message.content.strip()
+        corrected = response.choices[0].message.content.strip()
+        
+        # Hardcode fix for stubborn AI translation of 'galby'
+        if "galby" in product_name.lower() and "galbi" in corrected.lower():
+            corrected = corrected.lower().replace("galbi", "galby")
+            
+        return corrected
     except Exception as e:
         print(f"[AI Error] correct_product_spelling: {e}")
         return product_name.strip()
