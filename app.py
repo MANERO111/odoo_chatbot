@@ -2,11 +2,11 @@ import os
 import json
 from flask import Flask, request, jsonify, render_template, session
 from dotenv import load_dotenv
-from werkzeug.middleware.proxy_fix import ProxyFix
+# from werkzeug.middleware.proxy_fix import ProxyFix
 load_dotenv()
 
 from utils import set_state, get_state, clear_state, generate_choice_message, generate_company_choice_message
-from ai_service import extract_name, extract_order_products, extract_client_details, resolve_product_choice, is_confirmation, is_denial, correct_product_spelling
+from ai_service import extract_name, extract_order_products, extract_client_details, resolve_product_choice, is_confirmation, is_denial, correct_product_spelling, extract_navigation_intent
 from odoo_service import (
     odoo_check_client, odoo_create_client, odoo_search_product,
     odoo_create_quotation, odoo_list_companies
@@ -16,10 +16,10 @@ from auth import auth_bp, login_required
 app = Flask(__name__)
 app.secret_key = os.environ.get("SECRET_KEY", "icg-copilot-super-secret-2025")
 app.config["PERMANENT_SESSION_LIFETIME"] = 3600 * 8  # 8 hours
-app.config['APPLICATION_ROOT'] = '/chatbot'
+# app.config['APPLICATION_ROOT'] = '/chatbot'
 # Register auth routes (/login, /logout)
 app.register_blueprint(auth_bp)
-app.wsgi_app = ProxyFix(app.wsgi_app, x_proto=1, x_host=1, x_prefix=1)
+# app.wsgi_app = ProxyFix(app.wsgi_app, x_proto=1, x_host=1, x_prefix=1)
 
 
 # ─── STEPS ───
@@ -75,6 +75,78 @@ def chat():
         current_step = state.get("step", STEP_CHOOSE_COMPANY)
 
         print(f"[CHAT] Session: {session_id} | Step: {current_step} | Msg: {incoming_msg}")
+
+        # ──────────────────────────────────────────────
+        # CHECK NAVIGATION INTENT FIRST (Step Back / Change Company / Change Client)
+        # ──────────────────────────────────────────────
+        nav_intent = extract_navigation_intent(incoming_msg)
+        
+        if nav_intent == "CHANGE_COMPANY":
+            companies = state.get("companies", [])
+            if companies:
+                set_state(session_id, STEP_CHOOSE_COMPANY,
+                          commercial_name=state.get("commercial_name"),
+                          commercial_id=state.get("commercial_id"),
+                          companies=companies)
+                choice_msg = generate_company_choice_message(companies)
+                return reply(f"Wakha, nraj3o l-khtiyar dyal l-company. Afak khtar wahda:\n\n{choice_msg}")
+            else:
+                return reply("Smhlia, makayninch companies khrin bach tbdelhom.")
+                
+        elif nav_intent == "CHANGE_CLIENT":
+            if current_step != STEP_CHOOSE_COMPANY:
+                set_state(session_id, STEP_ASK_CLIENT_NAME,
+                          commercial_name=state.get("commercial_name"),
+                          commercial_id=state.get("commercial_id"),
+                          company_id=state.get("company_id"),
+                          company_name=state.get("company_name"),
+                          companies=state.get("companies", []))
+                return reply("Wakha, nraj3o l-khtiyar dyal l-client. Chno smit l-client li bghiti t-dir lih la commande?")
+            else:
+                return reply("Mzl makhtarity l-company. Afak khtar company b3da.")
+                
+        elif nav_intent == "CHANGE_PRODUCTS":
+            if current_step not in [STEP_CHOOSE_COMPANY, STEP_ASK_CLIENT_NAME, STEP_CREATE_CLIENT]:
+                state["pending_products"] = []
+                state["accumulated_products"] = []
+                state.pop("step", None)
+                set_state(session_id, STEP_WAIT_ORDER, **state)
+                return reply("Wakha, msahna l-moumtajat li khtarti. Chno bghiti t-commander mn jdid?")
+            else:
+                return reply("Mzl mawsalti l-khtiyar dyal l-moumtajat.")
+                
+        elif nav_intent == "STEP_BACK":
+            if current_step == STEP_ASK_CLIENT_NAME:
+                companies = state.get("companies", [])
+                if companies:
+                    set_state(session_id, STEP_CHOOSE_COMPANY,
+                              commercial_name=state.get("commercial_name"),
+                              commercial_id=state.get("commercial_id"),
+                              companies=companies)
+                    choice_msg = generate_company_choice_message(companies)
+                    return reply(f"Rja3na l-khtiyar dyal l-company. Afak khtar wahda:\n\n{choice_msg}")
+                else:
+                    return reply("Hada howa l-awal, ma-taqdarsh tarja3 ktar.")
+            elif current_step in [STEP_WAIT_ORDER, STEP_CREATE_CLIENT]:
+                set_state(session_id, STEP_ASK_CLIENT_NAME,
+                          commercial_name=state.get("commercial_name"),
+                          commercial_id=state.get("commercial_id"),
+                          company_id=state.get("company_id"),
+                          company_name=state.get("company_name"),
+                          companies=state.get("companies", []))
+                return reply("Rja3na. Chno smit l-client li bghiti t-dir lih la commande?")
+            elif current_step in [STEP_CONFIRM_MORE, STEP_CHOOSE_PRODUCT]:
+                state["pending_products"] = []
+                state.pop("step", None)
+                set_state(session_id, STEP_WAIT_ORDER, **state)
+                return reply("Rja3na l-khtiyar dyal l-moumtajat. Chno bghiti t-commander?")
+            elif current_step == STEP_ASK_DISCOUNT:
+                state.pop("step", None)
+                set_state(session_id, STEP_CONFIRM_MORE, **state)
+                return reply("Rja3na. Wach bghiti t-zid chi haja khora?")
+            elif current_step == STEP_CHOOSE_COMPANY:
+                return reply("Hada howa l-awal, ma-taqdarsh tarja3 ktar.")
+
 
         # ──────────────────────────────────────────────
         # STEP 1 – Choose which company (multi-company)

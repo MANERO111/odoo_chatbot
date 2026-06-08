@@ -113,6 +113,42 @@ def extract_client_details(message):
         return {}
 
 
+def extract_navigation_intent(message):
+    """
+    Check if the user wants to navigate backwards or change a previous selection.
+    Returns one of: "CHANGE_COMPANY", "CHANGE_CLIENT", "STEP_BACK", or null.
+    """
+    prompt = f"""
+    Analyze this message: '{message}'
+    Determine if the user's PRIMARY intent is to navigate backwards or change a previous selection.
+    Categories:
+    - "CHANGE_COMPANY": User wants to change the selected company (e.g., "change company", "company akhra", "nbdel charika").
+    - "CHANGE_CLIENT": User wants to change the selected client (e.g., "change client", "client akhor", "nbdl lclient").
+    - "CHANGE_PRODUCTS": User wants to clear their cart, change products, or restart product selection (e.g., "bghit n3awd nkhtar lproducts", "change products", "nbdl la commande").
+    - "STEP_BACK": User just wants to go back one step (e.g., "step back", "rje3 lor", "go back", "back").
+    - null: The message is answering a question, giving a number ("1", "2"), giving a name, ordering products, or anything else.
+    
+    CRITICAL RULE: If the user provides just a number (e.g., "1", "2") or a simple answer to a choice, it is NOT a navigation intent. Return null.
+    If in doubt, return null. Return a JSON object: {{"intent": "CHANGE_COMPANY" | "CHANGE_CLIENT" | "CHANGE_PRODUCTS" | "STEP_BACK" | null}}
+    """
+    try:
+        response = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[
+                {"role": "system", "content": "You are an intent classification assistant. Return ONLY valid JSON."},
+                {"role": "user", "content": prompt}
+            ],
+            temperature=0,
+            response_format={"type": "json_object"}
+        )
+        data = json.loads(response.choices[0].message.content)
+        return data.get("intent")
+    except Exception as e:
+        print(f"[AI Error] extract_navigation_intent: {e}")
+        return None
+
+
+
 def resolve_product_choice(user_input, options):
     """
     Resolve which product the user chose from a list of options.

@@ -19,7 +19,16 @@ def odoo_list_companies():
             timeout=5
         )
         if response.status_code == 200:
-            return response.json().get('result', [])
+            companies = response.json().get('result', [])
+            
+            # Filter by ALLOWED_COMPANIES from .env if present
+            allowed_str = os.environ.get("ALLOWED_COMPANIES", "").strip()
+            if allowed_str:
+                allowed_ids = [int(x.strip()) for x in allowed_str.split(",") if x.strip().isdigit()]
+                if allowed_ids:
+                    companies = [c for c in companies if c.get("id") in allowed_ids]
+                    
+            return companies
         return []
     except requests.RequestException as e:
         print(f"[Odoo Sync Error] - list_companies failed: {e}")
