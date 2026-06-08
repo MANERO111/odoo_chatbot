@@ -181,7 +181,9 @@ def correct_product_spelling(product_name):
     prompt = (
         f"Correct the spelling of this product name: '{product_name}'. "
         "It might be in French, English, or Moroccan Darija. "
-        "Fix phonetic mistakes (e.g. 'tble' -> 'table', 'ecron soler' -> 'ecran solaire'). "
+        "Fix phonetic mistakes (e.g. 'galby crime' -> 'galby creme', 'ecron soler' -> 'ecran solaire', 'gil douche' -> 'gel douche'). "
+        "CRITICAL RULE: DO NOT correct or change brand names. Preserve these exactly as typed: "
+        "'galby', 'magiclear', 'biomed', 'alfaderm', 'cosmetix', 'evoluderm', 'pdv', 'soivre', 'alfa' ,'reistill', 'dentyucral','cleare','davaj','capilift'. "
         "Respond ONLY with the corrected name, nothing else."
     )
     try:
