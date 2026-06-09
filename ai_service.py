@@ -137,13 +137,16 @@ def extract_navigation_intent(message):
     - "CHANGE_COMPANY": User wants to change the selected company (e.g., "change company", "company akhra", "nbdel charika").
     - "CHANGE_CLIENT": User wants to change the selected client (e.g., "change client", "client akhor", "nbdl lclient").
     - "CHANGE_PRODUCTS": User wants to clear their cart, change products, or restart product selection (e.g., "bghit n3awd nkhtar lproducts", "change products", "nbdl la commande").
-    - "STEP_BACK": User just wants to go back one step (e.g., "step back", "rje3 lor", "go back", "back").
+    - "STEP_BACK": User just wants to go back one step (examples: "step back", "rje3 lor", "rje3 mara khra", "back").
     - "SHOW_CART": User wants to see the products they have ALREADY SELECTED in their cart (e.g., "wrini chno sjlti", "chno dert", "show cart", "la liste dyal dakchi li khtart", "wrini la commande dyali"). DO NOT use this if the user asks for a list of products from a brand.
     - null: The message is an order for a SPECIFIC product (e.g., "bghit 2 magiclear gel", "3 galby creme"), answering a question, giving a number ("1", "2"), giving a name, or anything else.
     
     CRITICAL RULE 1: If the user is asking to view their CURRENT CART (e.g., "chno khtarit", "chno sjlti"), return "SHOW_CART". If they ask to see a brand's products (e.g., "wrini products galby", "list products galby"), it is NOT a cart, return null.
-    CRITICAL RULE 2: If the user provides an order with a quantity and a specific product name or just a product name (e.g., "bghit 2 magiclear", "5 pdv", "2 soivre", "galby creme"), it is an ORDER, NOT a navigation intent. Return null. Do not confuse brand names (like 'magiclear', 'soivre', 'galby') with commands.
+    CRITICAL RULE 2: If the user provides an order with a quantity and a specific product name or just a product name (e.g., "bghit 2 magiclear", "pdv", "2 soivre", "galby creme", "biomed"), it is an ORDER, NOT a navigation intent. Return null. Do not confuse brand names (like 'magiclear', 'soivre', 'galby', 'pdv', 'biomed', etc) with commands.
     CRITICAL RULE 3: If the user asks for a LIST of products from a specific brand (e.g., "3tini list products galby", "la liste dyal magiclear", "wrini products galby"), it is a PRODUCT SEARCH, NOT a navigation intent. Return null.
+    CRITICAL RULE 4: Single unrecognized words (like "reistill", "cleare", "alfaderm", "biomed") are PRODUCT SEARCHES. They are NOT navigation intents. Do not mistake "cleare" for "clear products", and do not mistake "reistill" for "step back". Return null.
+    CRITICAL RULE 5: ONLY return a navigation intent if the user explicitly uses clear navigation phrases (like "rje3 lor", "msah lcommande kamla"). Do not assume a single English/French word is a navigation command.
+    CRITICAL RULE 6: If the user wants to remove ONE SPECIFIC product from their cart (e.g., "msah product 2", "hayad galby", "delete 1"), return null. This is NOT a navigation intent. ONLY return "CHANGE_PRODUCTS" if they want to clear the ENTIRE cart (e.g., "msah kolchi", "delete all products", "msah lcommande kamla").
     If in doubt, return null. Return a JSON object: {{"intent": "CHANGE_COMPANY" | "CHANGE_CLIENT" | "CHANGE_PRODUCTS" | "STEP_BACK" | "SHOW_CART" | null}}
     """
     try:
@@ -182,7 +185,8 @@ Phrases that indicate this intent (in Darija/French/English):
 
 Rules:
 - Only return a quantity if the user clearly means "add more of the SAME last product" WITHOUT mentioning a product name.
-- CRITICAL: If the user explicitly mentions ANY brand name or product name (e.g., "2 magiclear", "galby", "soivre", "table"), DO NOT return a quantity. Return null, because they are starting a new search/order.
+- CRITICAL: If the user explicitly mentions ANY brand name, product name, or unrecognized word (e.g., "2 magiclear", "galby", "soivre", "table", "2 biomed", "pdv"), DO NOT return a quantity. Return null, because they are starting a new search/order for that product.
+- Only allow words that mean "more", "of it", "from that" (like "mno", "mn nfs chi", "dak", "encore", "more"). If there are other words (like "biomed", "galby", "magiclear", "creme"), return null.
 - If unclear, return null.
 
 Return JSON: {{"add_qty": number_or_null}}
@@ -223,10 +227,10 @@ Analyze this message: '{message}'
 The user's current cart is: {json.dumps(cart_info)}
 
 Determine if the user explicitly wants to REMOVE/DELETE a product from this cart.
-If yes, identify WHICH product they mean, and return its 'index'.
-- If they say "msah product 1" or "hayad lwl", they mean the 1st product (which is index 0).
-- If they say "msah 2", they mean the 2nd product (index 1).
-- If they give a name like "hayad galby", match it to the correct index in the cart.
+If yes, identify WHICH product they mean, and return its EXACT 'index' (which is 0-based).
+- If they say "msah product 1", "hayad lwl", or "1", they mean the 1st product in the list -> index 0.
+- If they say "msah 2" or "delete product 2", they mean the 2nd product in the list -> index 1.
+- If they give a name (e.g., "msah magiclear serum clarifiant"), you MUST find the item in the cart whose name BEST matches the user's input. Do not just pick the first item that contains a matching word. Pick the one that is the closest match.
 
 CRITICAL RULES:
 1. ONLY return an index if the user EXPLICITLY uses a removal word like "msah", "hayad", "delete", "remove", "supprimer".
