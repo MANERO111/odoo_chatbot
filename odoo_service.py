@@ -108,18 +108,22 @@ def odoo_search_product(product_name):
     try:
         response = requests.post(
             f"{ODOO_URL}/api/search_product",
-            json={"params": {"product_name": product_name}},
+            json={"params": {"product_name": product_name, "sale_ok": True}},
             headers={"X-API-KEY": ODOO_API_KEY},
             timeout=5
         )
         if response.status_code == 200:
             data = response.json().get('result', {})
             if data.get("found"):
-                return data.get("products", [])
+                products = data.get("products", [])
+                # Client-side safety filter: exclude products explicitly marked as not saleable
+                products = [p for p in products if p.get("sale_ok", True) is not False]
+                return products
         return []
     except requests.RequestException as e:
         print(f"[Odoo Sync Error] - search_product failed: {e}")
         return None
+
 
 def odoo_create_quotation(partner_id, products, promo_code=None, discount=None, user_id=None):
     ODOO_URL, ODOO_API_KEY = get_config()

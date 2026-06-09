@@ -7,6 +7,9 @@ load_dotenv()
 
 client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
 
+# Configurable model — set AI_MODEL in .env to switch (e.g. gpt-4o, gpt-4o-mini)
+AI_MODEL = os.environ.get("AI_MODEL", "gpt-4o")
+
 
 def extract_name(message):
     """
@@ -23,7 +26,7 @@ def extract_name(message):
     )
     try:
         response = client.chat.completions.create(
-            model="gpt-4o-mini",
+            model=AI_MODEL,
             messages=[{"role": "user", "content": prompt}],
             temperature=0,
             max_tokens=30
@@ -40,13 +43,21 @@ def extract_order_products(message):
     Returns: {"products": [{"name": "...", "qty": N}], "promo_code": "..." or null}
     """
     prompt = f"""
-    Extract products and quantities from this message: '{message}'
-    Return a JSON object: {{"products": [{{"name": "product name", "qty": number}}], "promo_code": "string or null"}}
-    If no products found, return {{"products": []}}
-    """
+You are a smart order assistant for a Moroccan salesperson. Extract products and quantities from this message: '{message}'
+
+IMPORTANT RULES:
+1. If the user gives only a brand/product name with NO quantity (e.g., "galby", "magiclear", "bghit galby"), extract it with qty = 1.
+2. If the user says "la liste dyal X", "3tini liste X", "wrin liya products X", or similar → extract product name as X with qty = 1 (the system will show the list).
+3. If the user gives a quantity + name (e.g., "2 galby", "3 table"), use that quantity.
+4. Messages can be in French, English, or Moroccan Darija (e.g., "bghit", "3tini", "khtar", "zidni").
+5. Extract ALL products mentioned. Each product gets its own entry.
+6. If truly no product name is identifiable (e.g., pure navigation commands like "rje3", "back", "la"), return {{"products": []}}.
+
+Return a JSON object: {{"products": [{{"name": "product name", "qty": number}}], "promo_code": "string or null"}}
+"""
     try:
         response = client.chat.completions.create(
-            model="gpt-4o-mini",
+            model=AI_MODEL,
             messages=[
                 {"role": "system", "content": "You are a data extraction assistant. Return ONLY valid JSON."},
                 {"role": "user", "content": prompt}
@@ -133,7 +144,7 @@ def extract_navigation_intent(message):
     """
     try:
         response = client.chat.completions.create(
-            model="gpt-4o-mini",
+            model=AI_MODEL,
             messages=[
                 {"role": "system", "content": "You are an intent classification assistant. Return ONLY valid JSON."},
                 {"role": "user", "content": prompt}
@@ -145,6 +156,51 @@ def extract_navigation_intent(message):
         return data.get("intent")
     except Exception as e:
         print(f"[AI Error] extract_navigation_intent: {e}")
+        return None
+
+
+def extract_add_more_quantity(message):
+    """
+    Detect if the user wants to add more of the LAST ordered product.
+    Examples:
+      "zidni mno 3"  -> 3
+      "add 3 more"   -> 3
+      "zid 5 mn nfs chi" -> 5
+      "3 mn dak"     -> 3
+      "encore 2"     -> 2
+    Returns: integer quantity to add, or None if this is NOT an "add more" intent.
+    """
+    prompt = f"""
+Analyze this message: '{message}'
+Determine if the user wants to ADD MORE QUANTITY of the LAST product they ordered (not a new product).
+Phrases that indicate this intent (in Darija/French/English):
+- "zidni mno N", "zid mno N", "zidni N mn nfs chi", "N mn dak", "encore N", "add N more", "N more of that", "zid N", "zidni N"
+
+Rules:
+- Only return a quantity if the user clearly means "add more of the SAME last product".
+- If the user is ordering a NEW product (mentions a product name), return null.
+- If unclear, return null.
+
+Return JSON: {{"add_qty": number_or_null}}
+"""
+    try:
+        response = client.chat.completions.create(
+            model=AI_MODEL,
+            messages=[
+                {"role": "system", "content": "You are an intent classifier. Return ONLY valid JSON."},
+                {"role": "user", "content": prompt}
+            ],
+            temperature=0,
+            response_format={"type": "json_object"},
+            max_tokens=30
+        )
+        data = json.loads(response.choices[0].message.content)
+        qty = data.get("add_qty")
+        if qty and isinstance(qty, (int, float)) and qty > 0:
+            return int(qty)
+        return None
+    except Exception as e:
+        print(f"[AI Error] extract_add_more_quantity: {e}")
         return None
 
 
@@ -161,7 +217,7 @@ def resolve_product_choice(user_input, options):
     )
     try:
         response = client.chat.completions.create(
-            model="gpt-4o-mini",
+            model=AI_MODEL,
             messages=[{"role": "system", "content": "Return ONLY an integer."},
                       {"role": "user", "content": prompt}],
             temperature=0,
@@ -189,7 +245,7 @@ def correct_product_spelling(product_name):
     )
     try:
         response = client.chat.completions.create(
-            model="gpt-4o-mini",
+            model=AI_MODEL,
             messages=[{"role": "user", "content": prompt}],
             temperature=0,
             max_tokens=30

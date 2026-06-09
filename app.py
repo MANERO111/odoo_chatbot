@@ -2,11 +2,11 @@ import os
 import json
 from flask import Flask, request, jsonify, render_template, session
 from dotenv import load_dotenv
-from werkzeug.middleware.proxy_fix import ProxyFix
+# from werkzeug.middleware.proxy_fix import ProxyFix
 load_dotenv()
 
 from utils import set_state, get_state, clear_state, generate_choice_message, generate_company_choice_message
-from ai_service import extract_name, extract_order_products, extract_client_details, resolve_product_choice, is_confirmation, is_denial, correct_product_spelling, extract_navigation_intent
+from ai_service import extract_name, extract_order_products, extract_client_details, resolve_product_choice, is_confirmation, is_denial, correct_product_spelling, extract_navigation_intent, extract_add_more_quantity
 from odoo_service import (
     odoo_check_client, odoo_create_client, odoo_search_product,
     odoo_create_quotation, odoo_list_companies
@@ -16,10 +16,10 @@ from auth import auth_bp, login_required
 app = Flask(__name__)
 app.secret_key = os.environ.get("SECRET_KEY", "icg-copilot-super-secret-2025")
 app.config["PERMANENT_SESSION_LIFETIME"] = 3600 * 8  # 8 hours
-app.config['APPLICATION_ROOT'] = '/chatbot'
+# app.config['APPLICATION_ROOT'] = '/chatbot'
 # Register auth routes (/login, /logout)
 app.register_blueprint(auth_bp)
-app.wsgi_app = ProxyFix(app.wsgi_app, x_proto=1, x_host=1, x_prefix=1)
+# app.wsgi_app = ProxyFix(app.wsgi_app, x_proto=1, x_host=1, x_prefix=1)
 
 
 # ─── STEPS ───
@@ -80,6 +80,7 @@ def chat():
         # CHECK NAVIGATION INTENT FIRST (Step Back / Change Company / Change Client)
         # ──────────────────────────────────────────────
         nav_intent = extract_navigation_intent(incoming_msg)
+        print(f"[DEBUG] nav_intent='{nav_intent}' for msg='{incoming_msg}'")
         
         if nav_intent == "CHANGE_COMPANY":
             companies = state.get("companies", [])
@@ -252,6 +253,7 @@ def chat():
         # ──────────────────────────────────────────────
         elif current_step == STEP_WAIT_ORDER:
             order_data = extract_order_products(incoming_msg)
+            print(f"[DEBUG] extract_order_products result: {order_data}")
 
             if not order_data or not order_data.get("products"):
                 return reply("Mafhamtch l-moumtajat. Afak 3awd kteb chno bghiti (ex: 2 table o 3 lampe).")
@@ -266,6 +268,21 @@ def chat():
         # STEP 5 – Ask if they want more
         # ──────────────────────────────────────────────
         elif current_step == STEP_CONFIRM_MORE:
+            # Zero: check if user wants to add more qty of the LAST product (e.g. "zidni mno 3")
+            add_qty = extract_add_more_quantity(incoming_msg)
+            if add_qty:
+                accumulated = state.get("accumulated_products", [])
+                if accumulated:
+                    accumulated[-1]["qty"] = accumulated[-1].get("qty", 1) + add_qty
+                    state["accumulated_products"] = accumulated
+                    state.pop("step", None)
+                    set_state(session_id, STEP_CONFIRM_MORE, **state)
+                    last_name = accumulated[-1]["name"]
+                    last_qty  = accumulated[-1]["qty"]
+                    return reply(f"Zidna! {last_name} wslat l {last_qty}. Wach bghiti t-zid chi haja khora?")
+                else:
+                    return reply("Ma-kaynch moumtaj f l-qaima bach nzidoh. Chno bghiti t-commander?")
+
             # First: try to extract products (user may have typed them directly)
             order_data = extract_order_products(incoming_msg)
             if order_data and order_data.get("products"):
