@@ -52,6 +52,7 @@ IMPORTANT RULES:
 4. Messages can be in French, English, or Moroccan Darija (e.g., "bghit", "3tini", "khtar", "zidni").
 5. Extract ALL products mentioned. Each product gets its own entry.
 6. If truly no product name is identifiable (e.g., pure navigation commands like "rje3", "back", "la"), return {{"products": []}}.
+7. CRITICAL: DO NOT split a single product into multiple entries. E.g., if the user says "2 galby creme", that is ONE product with name "galby creme" and qty 2. Do not separate it into "galby" and "creme".
 
 Return a JSON object: {{"products": [{{"name": "product name", "qty": number}}], "promo_code": "string or null"}}
 """
@@ -137,10 +138,12 @@ def extract_navigation_intent(message):
     - "CHANGE_CLIENT": User wants to change the selected client (e.g., "change client", "client akhor", "nbdl lclient").
     - "CHANGE_PRODUCTS": User wants to clear their cart, change products, or restart product selection (e.g., "bghit n3awd nkhtar lproducts", "change products", "nbdl la commande").
     - "STEP_BACK": User just wants to go back one step (e.g., "step back", "rje3 lor", "go back", "back").
-    - null: The message is an order (e.g., "bghit 2 magiclear gel", "3 galby creme"), answering a question, giving a number ("1", "2"), giving a name, or anything else.
+    - "SHOW_CART": User wants to see the products they have currently selected/ordered (e.g., "wrini products li sjlti", "wrini products li khtarit", "wrini chno sjlti", "chno dert", "show cart", "la liste dyal dakchi li khtart", "wrini la commande dyali").
+    - null: The message is an order for a SPECIFIC product (e.g., "bghit 2 magiclear gel", "3 galby creme"), answering a question, giving a number ("1", "2"), giving a name, or anything else.
     
-    CRITICAL RULE: If the user provides an order with a quantity and product name (e.g., "bghit 2 magiclear", "5 pdv", "2 table") or just a simple answer, it is an ORDER, NOT a navigation intent. Return null. Do not confuse brand names (like 'magiclear') with commands (like 'clear cart').
-    If in doubt, return null. Return a JSON object: {{"intent": "CHANGE_COMPANY" | "CHANGE_CLIENT" | "CHANGE_PRODUCTS" | "STEP_BACK" | null}}
+    CRITICAL RULE 1: If the user is asking to view their CURRENT CART or what they ALREADY chose (e.g., "wrini products", "chno khtarit"), return "SHOW_CART". This is NOT a product search.
+    CRITICAL RULE 2: If the user provides an order with a quantity and a specific product name (e.g., "bghit 2 magiclear", "5 pdv", "2 soivre", "2 table"), it is an ORDER, NOT a navigation intent. Return null. Do not confuse brand names (like 'magiclear', 'soivre', 'galby') with commands.
+    If in doubt, return null. Return a JSON object: {{"intent": "CHANGE_COMPANY" | "CHANGE_CLIENT" | "CHANGE_PRODUCTS" | "STEP_BACK" | "SHOW_CART" | null}}
     """
     try:
         response = client.chat.completions.create(
@@ -177,8 +180,8 @@ Phrases that indicate this intent (in Darija/French/English):
 - "zidni mno N", "zid mno N", "zidni N mn nfs chi", "N mn dak", "encore N", "add N more", "N more of that", "zid N", "zidni N"
 
 Rules:
-- Only return a quantity if the user clearly means "add more of the SAME last product".
-- If the user is ordering a NEW product (mentions a product name), return null.
+- Only return a quantity if the user clearly means "add more of the SAME last product" WITHOUT mentioning a product name.
+- CRITICAL: If the user explicitly mentions ANY brand name or product name (e.g., "2 magiclear", "galby", "soivre", "table"), DO NOT return a quantity. Return null, because they are starting a new search/order.
 - If unclear, return null.
 
 Return JSON: {{"add_qty": number_or_null}}
@@ -201,6 +204,53 @@ Return JSON: {{"add_qty": number_or_null}}
         return None
     except Exception as e:
         print(f"[AI Error] extract_add_more_quantity: {e}")
+        return None
+
+
+def extract_remove_product(message, accumulated_products):
+    """
+    Detect if the user wants to remove a product from their cart.
+    Examples: "msah product 1", "hayad galby", "supprimer lwl"
+    Returns the 0-based index to remove, or None.
+    """
+    if not accumulated_products:
+        return None
+        
+    cart_info = [{"index": i, "name": p["name"]} for i, p in enumerate(accumulated_products)]
+    prompt = f"""
+Analyze this message: '{message}'
+The user's current cart is: {json.dumps(cart_info)}
+
+Determine if the user explicitly wants to REMOVE/DELETE a product from this cart.
+If yes, identify WHICH product they mean, and return its 'index'.
+- If they say "msah product 1" or "hayad lwl", they mean the 1st product (which is index 0).
+- If they say "msah 2", they mean the 2nd product (index 1).
+- If they give a name like "hayad galby", match it to the correct index in the cart.
+
+CRITICAL RULES:
+1. ONLY return an index if the user EXPLICITLY uses a removal word like "msah", "hayad", "delete", "remove", "supprimer".
+2. If the user DOES NOT use a removal word (e.g., they just say "2 galby", "magiclear"), it is an order, NOT a removal. Return null.
+
+Return JSON ONLY: {{"remove_index": integer_or_null}}
+"""
+    try:
+        response = client.chat.completions.create(
+            model=AI_MODEL,
+            messages=[
+                {"role": "system", "content": "You are a helpful assistant. Return ONLY valid JSON."},
+                {"role": "user", "content": prompt}
+            ],
+            temperature=0,
+            response_format={"type": "json_object"},
+            max_tokens=30
+        )
+        data = json.loads(response.choices[0].message.content)
+        idx = data.get("remove_index")
+        if isinstance(idx, int) and 0 <= idx < len(accumulated_products):
+            return idx
+        return None
+    except Exception as e:
+        print(f"[AI Error] extract_remove_product: {e}")
         return None
 
 

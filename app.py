@@ -6,7 +6,7 @@ from werkzeug.middleware.proxy_fix import ProxyFix
 load_dotenv()
 
 from utils import set_state, get_state, clear_state, generate_choice_message, generate_company_choice_message
-from ai_service import extract_name, extract_order_products, extract_client_details, resolve_product_choice, is_confirmation, is_denial, correct_product_spelling, extract_navigation_intent, extract_add_more_quantity
+from ai_service import extract_name, extract_order_products, extract_client_details, resolve_product_choice, is_confirmation, is_denial, correct_product_spelling, extract_navigation_intent, extract_add_more_quantity, extract_remove_product
 from odoo_service import (
     odoo_check_client, odoo_create_client, odoo_search_product,
     odoo_create_quotation, odoo_list_companies
@@ -147,7 +147,14 @@ def chat():
                 return reply("Rja3na. Wach bghiti t-zid chi haja khora?")
             elif current_step == STEP_CHOOSE_COMPANY:
                 return reply("Hada howa l-awal, ma-taqdarsh tarja3 ktar.")
-
+                
+        elif nav_intent == "SHOW_CART":
+            accumulated = state.get("accumulated_products", [])
+            if not accumulated:
+                return reply("Mzl makhtarti hta moumtaj. Chno bghiti t-commander?")
+            else:
+                cart_list = "\n".join([f"- {p['name']} x{p['qty']}" for p in accumulated])
+                return reply(f"Dakchi li sjlti htal daba:\n{cart_list}\n\nWach bghiti t-zid chi haja khora?")
 
         # ──────────────────────────────────────────────
         # STEP 1 – Choose which company (multi-company)
@@ -268,6 +275,16 @@ def chat():
         # STEP 5 – Ask if they want more
         # ──────────────────────────────────────────────
         elif current_step == STEP_CONFIRM_MORE:
+            # Minus One: check if user wants to remove a product (e.g. "msah product 1", "hayad galby")
+            accumulated = state.get("accumulated_products", [])
+            remove_idx = extract_remove_product(incoming_msg, accumulated)
+            if remove_idx is not None and 0 <= remove_idx < len(accumulated):
+                removed = accumulated.pop(remove_idx)
+                state["accumulated_products"] = accumulated
+                state.pop("step", None)
+                set_state(session_id, STEP_CONFIRM_MORE, **state)
+                return reply(f"Msahna {removed['name']} mn l-commande. Wach bghiti t-zid chi haja khora?")
+
             # Zero: check if user wants to add more qty of the LAST product (e.g. "zidni mno 3")
             add_qty = extract_add_more_quantity(incoming_msg)
             if add_qty:
