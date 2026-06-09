@@ -47,7 +47,7 @@ You are a smart order assistant for a Moroccan salesperson. Extract products and
 
 IMPORTANT RULES:
 1. If the user gives only a brand/product name with NO quantity (e.g., "galby", "magiclear", "bghit galby"), extract it with qty = 1.
-2. If the user says "la liste dyal X", "3tini liste X", "wrin liya products X", or similar → extract product name as X with qty = 1 (the system will show the list).
+2. If the user asks for a list of products (e.g., "la liste dyal X", "3tini list X", "wrin liya products X", "3tini list products X") → extract ONLY the brand/product name X with qty = 1. DO NOT include words like "list", "liste", "products", or "moumtajat" in the extracted name. For example, if they say "3tini list galby", extract "galby", NOT "list galby".
 3. If the user gives a quantity + name (e.g., "2 galby", "3 table"), use that quantity.
 4. Messages can be in French, English, or Moroccan Darija (e.g., "bghit", "3tini", "khtar", "zidni").
 5. Extract ALL products mentioned. Each product gets its own entry.
@@ -138,11 +138,12 @@ def extract_navigation_intent(message):
     - "CHANGE_CLIENT": User wants to change the selected client (e.g., "change client", "client akhor", "nbdl lclient").
     - "CHANGE_PRODUCTS": User wants to clear their cart, change products, or restart product selection (e.g., "bghit n3awd nkhtar lproducts", "change products", "nbdl la commande").
     - "STEP_BACK": User just wants to go back one step (e.g., "step back", "rje3 lor", "go back", "back").
-    - "SHOW_CART": User wants to see the products they have currently selected/ordered (e.g., "wrini products li sjlti", "wrini products li khtarit", "wrini chno sjlti", "chno dert", "show cart", "la liste dyal dakchi li khtart", "wrini la commande dyali").
+    - "SHOW_CART": User wants to see the products they have ALREADY SELECTED in their cart (e.g., "wrini chno sjlti", "chno dert", "show cart", "la liste dyal dakchi li khtart", "wrini la commande dyali"). DO NOT use this if the user asks for a list of products from a brand.
     - null: The message is an order for a SPECIFIC product (e.g., "bghit 2 magiclear gel", "3 galby creme"), answering a question, giving a number ("1", "2"), giving a name, or anything else.
     
-    CRITICAL RULE 1: If the user is asking to view their CURRENT CART or what they ALREADY chose (e.g., "wrini products", "chno khtarit"), return "SHOW_CART". This is NOT a product search.
-    CRITICAL RULE 2: If the user provides an order with a quantity and a specific product name (e.g., "bghit 2 magiclear", "5 pdv", "2 soivre", "2 table"), it is an ORDER, NOT a navigation intent. Return null. Do not confuse brand names (like 'magiclear', 'soivre', 'galby') with commands.
+    CRITICAL RULE 1: If the user is asking to view their CURRENT CART (e.g., "chno khtarit", "chno sjlti"), return "SHOW_CART". If they ask to see a brand's products (e.g., "wrini products galby", "list products galby"), it is NOT a cart, return null.
+    CRITICAL RULE 2: If the user provides an order with a quantity and a specific product name or just a product name (e.g., "bghit 2 magiclear", "5 pdv", "2 soivre", "galby creme"), it is an ORDER, NOT a navigation intent. Return null. Do not confuse brand names (like 'magiclear', 'soivre', 'galby') with commands.
+    CRITICAL RULE 3: If the user asks for a LIST of products from a specific brand (e.g., "3tini list products galby", "la liste dyal magiclear", "wrini products galby"), it is a PRODUCT SEARCH, NOT a navigation intent. Return null.
     If in doubt, return null. Return a JSON object: {{"intent": "CHANGE_COMPANY" | "CHANGE_CLIENT" | "CHANGE_PRODUCTS" | "STEP_BACK" | "SHOW_CART" | null}}
     """
     try:
