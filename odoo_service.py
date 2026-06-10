@@ -118,6 +118,8 @@ def odoo_search_product(product_name):
                 products = data.get("products", [])
                 # Client-side safety filter: exclude products explicitly marked as not saleable
                 products = [p for p in products if p.get("sale_ok", True) is not False]
+                # Only keep products that have a barcode (code-barres) defined
+                products = [p for p in products if p.get("barcode")]
                 return products
         return []
     except requests.RequestException as e:

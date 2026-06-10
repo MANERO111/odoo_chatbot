@@ -2,7 +2,7 @@ import os
 import json
 from flask import Flask, request, jsonify, render_template, session
 from dotenv import load_dotenv
-from werkzeug.middleware.proxy_fix import ProxyFix
+# from werkzeug.middleware.proxy_fix import ProxyFix
 load_dotenv()
 
 from utils import set_state, get_state, clear_state, generate_choice_message, generate_company_choice_message
@@ -16,10 +16,10 @@ from auth import auth_bp, login_required
 app = Flask(__name__)
 app.secret_key = os.environ.get("SECRET_KEY", "icg-copilot-super-secret-2025")
 app.config["PERMANENT_SESSION_LIFETIME"] = 3600 * 8  # 8 hours
-app.config['APPLICATION_ROOT'] = '/chatbot'
+# app.config['APPLICATION_ROOT'] = '/chatbot'
 # Register auth routes (/login, /logout)
 app.register_blueprint(auth_bp)
-app.wsgi_app = ProxyFix(app.wsgi_app, x_proto=1, x_host=1, x_prefix=1)
+# app.wsgi_app = ProxyFix(app.wsgi_app, x_proto=1, x_host=1, x_prefix=1)
 
 
 # ─── STEPS ───
