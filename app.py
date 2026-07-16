@@ -2,7 +2,7 @@ import os
 import json
 from flask import Flask, request, jsonify, render_template, session
 from dotenv import load_dotenv
-# from werkzeug.middleware.proxy_fix import ProxyFix
+from werkzeug.middleware.proxy_fix import ProxyFix
 load_dotenv()
 
 from utils import set_state, get_state, clear_state, generate_choice_message, generate_company_choice_message
@@ -16,10 +16,10 @@ from auth import auth_bp, login_required
 app = Flask(__name__)
 app.secret_key = os.environ.get("SECRET_KEY", "icg-copilot-super-secret-2025")
 app.config["PERMANENT_SESSION_LIFETIME"] = 3600 * 8  # 8 hours
-# app.config['APPLICATION_ROOT'] = '/chatbot'
+app.config['APPLICATION_ROOT'] = '/chatbot'
 # Register auth routes (/login, /logout)
 app.register_blueprint(auth_bp)
-# app.wsgi_app = ProxyFix(app.wsgi_app, x_proto=1, x_host=1, x_prefix=1)
+app.wsgi_app = ProxyFix(app.wsgi_app, x_proto=1, x_host=1, x_prefix=1)
 
 
 # ─── STEPS ───
@@ -286,19 +286,26 @@ def chat():
                 return reply(f"Msahna {removed['name']} mn l-commande. Wach bghiti t-zid chi haja khora?")
 
             # Zero: check if user wants to add more qty of the LAST product (e.g. "zidni mno 3")
-            add_qty = extract_add_more_quantity(incoming_msg)
-            if add_qty:
+            add_qty_info = extract_add_more_quantity(incoming_msg)
+            if add_qty_info and add_qty_info.get("qty"):
+                qty = add_qty_info["qty"]
+                action = add_qty_info["action"]
                 accumulated = state.get("accumulated_products", [])
                 if accumulated:
-                    accumulated[-1]["qty"] = accumulated[-1].get("qty", 1) + add_qty
+                    if action == "set":
+                        accumulated[-1]["qty"] = qty
+                        msg_action = "Badalna l-qte!"
+                    else:
+                        accumulated[-1]["qty"] = accumulated[-1].get("qty", 1) + qty
+                        msg_action = "Zidna!"
                     state["accumulated_products"] = accumulated
                     state.pop("step", None)
                     set_state(session_id, STEP_CONFIRM_MORE, **state)
                     last_name = accumulated[-1]["name"]
                     last_qty  = accumulated[-1]["qty"]
-                    return reply(f"Zidna! {last_name} wslat l {last_qty}. Wach bghiti t-zid chi haja khora?")
+                    return reply(f"{msg_action} {last_name} wslat l {last_qty}. Wach bghiti t-zid chi haja khora?")
                 else:
-                    return reply("Ma-kaynch moumtaj f l-qaima bach nzidoh. Chno bghiti t-commander?")
+                    return reply("Ma-kaynch moumtaj f l-qaima bach nbadlo l-qte dyalo. Chno bghiti t-commander?")
 
             # First: try to extract products (user may have typed them directly)
             order_data = extract_order_products(incoming_msg)
@@ -326,6 +333,14 @@ def chat():
         # STEP 6 – Choose between similar products
         # ──────────────────────────────────────────────
         elif current_step == STEP_CHOOSE_PRODUCT:
+            if is_denial(incoming_msg):
+                state.pop("options", None)
+                state.pop("current_resolving_product", None)
+                state.pop("step", None)
+                state["pending_products"] = []
+                set_state(session_id, STEP_WAIT_ORDER, **state)
+                return reply("Okey, chno l-moumtajat li bghiti t-zid?")
+                
             options = state.get("options", [])
             chosen  = resolve_product_choice(incoming_msg, options)
             if chosen:

@@ -147,6 +147,7 @@ def extract_navigation_intent(message):
     CRITICAL RULE 4: Single unrecognized words (like "reistill", "cleare", "alfaderm", "biomed") are PRODUCT SEARCHES. They are NOT navigation intents. Do not mistake "cleare" for "clear products", and do not mistake "reistill" for "step back". Return null.
     CRITICAL RULE 5: ONLY return a navigation intent if the user explicitly uses clear navigation phrases (like "rje3 lor", "msah lcommande kamla"). Do not assume a single English/French word is a navigation command.
     CRITICAL RULE 6: If the user wants to remove ONE SPECIFIC product from their cart (e.g., "msah product 2", "hayad galby", "delete 1"), return null. This is NOT a navigation intent. ONLY return "CHANGE_PRODUCTS" if they want to clear the ENTIRE cart (e.g., "msah kolchi", "delete all products", "msah lcommande kamla").
+    CRITICAL RULE 7: If the user just says "la", "no", "non", or "bghit produit akhor", it is NOT a navigation intent. Return null. DO NOT confuse this with clearing the cart.
     If in doubt, return null. Return a JSON object: {{"intent": "CHANGE_COMPANY" | "CHANGE_CLIENT" | "CHANGE_PRODUCTS" | "STEP_BACK" | "SHOW_CART" | null}}
     """
     try:
@@ -168,28 +169,21 @@ def extract_navigation_intent(message):
 
 def extract_add_more_quantity(message):
     """
-    Detect if the user wants to add more of the LAST ordered product.
-    Examples:
-      "zidni mno 3"  -> 3
-      "add 3 more"   -> 3
-      "zid 5 mn nfs chi" -> 5
-      "3 mn dak"     -> 3
-      "encore 2"     -> 2
-    Returns: integer quantity to add, or None if this is NOT an "add more" intent.
+    Detect if the user wants to add more of the LAST ordered product, or SET its quantity.
+    Returns: a dict {'action': 'add'|'set', 'qty': N} or None
     """
     prompt = f"""
 Analyze this message: '{message}'
-Determine if the user wants to ADD MORE QUANTITY of the LAST product they ordered (not a new product).
-Phrases that indicate this intent (in Darija/French/English):
-- "zidni mno N", "zid mno N", "zidni N mn nfs chi", "N mn dak", "encore N", "add N more", "N more of that", "zid N", "zidni N"
+Determine if the user wants to ADD MORE QUANTITY or SET A NEW TOTAL QUANTITY for the LAST product they ordered (not a new product).
+Phrases that indicate "add": "zidni mno N", "zid mno N", "zidni N mn nfs chi", "N mn dak", "encore N", "add N more", "N more of that", "zid N", "zidni N"
+Phrases that indicate "set": "dir lqte N", "lqte N", "dir fiha N", "set quantity to N", "change to N"
 
 Rules:
-- Only return a quantity if the user clearly means "add more of the SAME last product" WITHOUT mentioning a product name.
+- Only return if the user clearly means to modify the quantity of the SAME last product WITHOUT mentioning a product name.
 - CRITICAL: If the user explicitly mentions ANY brand name, product name, or unrecognized word (e.g., "2 magiclear", "galby", "soivre", "table", "2 biomed", "pdv"), DO NOT return a quantity. Return null, because they are starting a new search/order for that product.
-- Only allow words that mean "more", "of it", "from that" (like "mno", "mn nfs chi", "dak", "encore", "more"). If there are other words (like "biomed", "galby", "magiclear", "creme"), return null.
-- If unclear, return null.
+- Only allow words that relate to quantity modification without specific product names.
 
-Return JSON: {{"add_qty": number_or_null}}
+Return JSON: {{"action": "add" or "set", "qty": number_or_null}}
 """
     try:
         response = client.chat.completions.create(
@@ -200,12 +194,15 @@ Return JSON: {{"add_qty": number_or_null}}
             ],
             temperature=0,
             response_format={"type": "json_object"},
-            max_tokens=30
+            max_tokens=60
         )
         data = json.loads(response.choices[0].message.content)
-        qty = data.get("add_qty")
+        qty = data.get("qty")
+        action = data.get("action", "add")
         if qty and isinstance(qty, (int, float)) and qty > 0:
-            return int(qty)
+            if action not in ["add", "set"]:
+                action = "add"
+            return {"action": action, "qty": int(qty)}
         return None
     except Exception as e:
         print(f"[AI Error] extract_add_more_quantity: {e}")
