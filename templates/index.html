@@ -75,10 +75,26 @@
     </style>
 </head>
 <body>
+    <!-- Mobile Backdrop Overlay -->
+    <div class="drawer-overlay" id="drawer-overlay"></div>
+
     <div class="app-container">
-        <!-- Sidebar -->
-        <div class="sidebar">
-            <div class="logo">Commande ICG</div>
+        <!-- Mobile Top Header Bar -->
+        <div class="mobile-header">
+            <div class="mobile-logo">Commande ICG</div>
+            <div class="mobile-header-actions">
+                <button type="button" class="btn-toggle-drawer" id="btn-toggle-drawer">
+                    <span>⚙</span> Info
+                </button>
+            </div>
+        </div>
+
+        <!-- Sidebar / Mobile Drawer -->
+        <div class="sidebar" id="sidebar">
+            <div class="sidebar-header-row">
+                <div class="logo">Commande ICG</div>
+                <button type="button" class="drawer-close-btn" id="drawer-close-btn" title="Close drawer">&times;</button>
+            </div>
 
             <!-- Logged-in user -->
             <div class="user-badge">
@@ -111,12 +127,11 @@
 
             <!-- Logout -->
             <a href="{{ request.script_root }}/logout" class="btn-logout" id="btn-logout">
-            <!-- <a href="/logout" class="btn-logout" id="btn-logout"> -->
                 <span>⎋</span> Sign Out
             </a>
         </div>
 
-        <!-- Main Chat -->
+        <!-- Main Chat Area -->
         <div class="chat-area">
             <div id="chat-messages">
                 <div class="message bot" id="greeting-msg">
@@ -126,7 +141,7 @@
 
             <form id="chat-form" class="input-container">
                 <input type="text" id="user-input" placeholder="Type your message..." autocomplete="off">
-                <button type="submit" id="send-btn">Send</button>
+                <button type="submit" id="send-btn">Send ➔</button>
             </form>
         </div>
     </div>
@@ -138,6 +153,26 @@
         const displayComm  = document.getElementById('display-commercial');
         const displayComp  = document.getElementById('display-company');
         const displayClient= document.getElementById('display-client');
+
+        // Mobile Drawer Elements
+        const sidebar        = document.getElementById('sidebar');
+        const drawerOverlay  = document.getElementById('drawer-overlay');
+        const btnToggleDrawer= document.getElementById('btn-toggle-drawer');
+        const drawerCloseBtn = document.getElementById('drawer-close-btn');
+
+        function openDrawer() {
+            sidebar.classList.add('open');
+            drawerOverlay.classList.add('active');
+        }
+
+        function closeDrawer() {
+            sidebar.classList.remove('open');
+            drawerOverlay.classList.remove('active');
+        }
+
+        if (btnToggleDrawer) btnToggleDrawer.addEventListener('click', openDrawer);
+        if (drawerCloseBtn) drawerCloseBtn.addEventListener('click', closeDrawer);
+        if (drawerOverlay) drawerOverlay.addEventListener('click', closeDrawer);
 
         // Unique session ID per browser tab (sent along but server uses Flask session username)
         const sessionId = 'web_' + Math.random().toString(36).substr(2, 9);

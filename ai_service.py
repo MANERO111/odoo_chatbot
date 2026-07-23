@@ -313,3 +313,63 @@ def correct_product_spelling(product_name):
         print(f"[AI Error] correct_product_spelling: {e}")
         return product_name.strip()
 
+
+def extract_quantity(message):
+    """
+    Extract a positive integer quantity from a user response.
+    Handles numeric digits as well as number words in French, English, and Moroccan Darija.
+    """
+    import re
+    msg = message.strip().lower()
+    
+    # 1. Quick regex for straightforward digits
+    digit_match = re.search(r'\b\d+\b', msg)
+    if digit_match:
+        try:
+            val = int(digit_match.group())
+            if val > 0:
+                return val
+        except ValueError:
+            pass
+
+    # 2. Word mapping in Darija, French, English
+    word_map = {
+        "wahd": 1, "wahed": 1, "un": 1, "une": 1, "one": 1,
+        "jouj": 2, "joj": 2, "zoj": 2, "deux": 2, "two": 2,
+        "tlata": 3, "tlatha": 3, "trois": 3, "three": 3,
+        "arba3a": 4, "rba3a": 4, "quatre": 4, "four": 4,
+        "khamsa": 5, "khmsa": 5, "cinq": 5, "five": 5,
+        "setta": 6, "sta": 6, "six": 6,
+        "seb3a": 7, "sb3a": 7, "sept": 7, "seven": 7,
+        "tmenya": 8, "tmnya": 8, "huit": 8, "eight": 8,
+        "tes3a": 9, "ts3a": 9, "neuf": 9, "nine": 9,
+        "ashra": 10, "chra": 10, "dix": 10, "ten": 10
+    }
+    
+    for word, num in word_map.items():
+        if re.search(r'\b' + re.escape(word) + r'\b', msg):
+            return num
+
+    # 3. LLM fallback for ambiguous text
+    prompt = (
+        f"Extract ONLY the requested numerical quantity from this message: '{message}'. "
+        "Return ONLY the positive integer (e.g. 1, 2, 5, 10). If no quantity is found, return 0."
+    )
+    try:
+        response = client.chat.completions.create(
+            model=AI_MODEL,
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0,
+            max_tokens=10
+        )
+        text = response.choices[0].message.content.strip()
+        match = re.search(r'\d+', text)
+        if match:
+            val = int(match.group())
+            return val if val > 0 else None
+        return None
+    except Exception as e:
+        print(f"[AI Error] extract_quantity: {e}")
+        return None
+
+

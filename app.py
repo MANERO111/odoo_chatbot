@@ -6,7 +6,12 @@ from werkzeug.middleware.proxy_fix import ProxyFix
 load_dotenv()
 
 from utils import set_state, get_state, clear_state, generate_choice_message, generate_company_choice_message
-from ai_service import extract_name, extract_order_products, extract_client_details, resolve_product_choice, is_confirmation, is_denial, correct_product_spelling, extract_navigation_intent, extract_add_more_quantity, extract_remove_product
+from ai_service import (
+    extract_name, extract_order_products, extract_client_details,
+    resolve_product_choice, is_confirmation, is_denial, correct_product_spelling,
+    extract_navigation_intent, extract_add_more_quantity, extract_remove_product,
+    extract_quantity
+)
 from odoo_service import (
     odoo_check_client, odoo_create_client, odoo_search_product,
     odoo_create_quotation, odoo_list_companies
@@ -29,7 +34,9 @@ STEP_CREATE_CLIENT     = "CREATE_CLIENT"
 STEP_WAIT_ORDER        = "WAIT_ORDER"
 STEP_CONFIRM_MORE      = "CONFIRM_MORE"
 STEP_CHOOSE_PRODUCT    = "CHOOSE_PRODUCT"
+STEP_ASK_QUANTITY      = "ASK_QUANTITY"
 STEP_ASK_DISCOUNT      = "ASK_DISCOUNT"
+
 
 @app.route('/')
 @login_required
@@ -136,8 +143,10 @@ def chat():
                           company_name=state.get("company_name"),
                           companies=state.get("companies", []))
                 return reply("Rja3na. Chno smit l-client li bghiti t-dir lih la commande?")
-            elif current_step in [STEP_CONFIRM_MORE, STEP_CHOOSE_PRODUCT]:
+            elif current_step in [STEP_CONFIRM_MORE, STEP_CHOOSE_PRODUCT, STEP_ASK_QUANTITY]:
                 state["pending_products"] = []
+                state.pop("selected_product", None)
+                state.pop("options", None)
                 state.pop("step", None)
                 set_state(session_id, STEP_WAIT_ORDER, **state)
                 return reply("Rja3na l-khtiyar dyal l-moumtajat. Chno bghiti t-commander?")
@@ -344,19 +353,50 @@ def chat():
             options = state.get("options", [])
             chosen  = resolve_product_choice(incoming_msg, options)
             if chosen:
-                accumulated = state.get("accumulated_products", [])
-                current_p   = state.get("current_resolving_product")
-                accumulated.append({
+                state.pop("options", None)
+                state.pop("current_resolving_product", None)
+                state["selected_product"] = {
                     "product_id": chosen["product_id"],
-                    "name": chosen["name"],
-                    "qty": current_p.get("qty", 1)
+                    "name": chosen["name"]
+                }
+                state.pop("step", None)
+                set_state(session_id, STEP_ASK_QUANTITY, **state)
+                return reply(f"Khtarti: '{chosen['name']}'. Chhal d-la quantité li bghiti mnou?")
+            else:
+                return reply("Afak khtar rqm dyal l-moumtaj mn l-qaima.")
+
+        # ──────────────────────────────────────────────
+        # STEP 6.5 – Ask quantity for selected product
+        # ──────────────────────────────────────────────
+        elif current_step == STEP_ASK_QUANTITY:
+            selected_product = state.get("selected_product")
+            if not selected_product:
+                state.pop("step", None)
+                set_state(session_id, STEP_WAIT_ORDER, **state)
+                return reply("Mzl makhtarti hta moumtaj. Chno bghiti t-commander?")
+
+            if is_denial(incoming_msg):
+                state.pop("selected_product", None)
+                state.pop("step", None)
+                set_state(session_id, STEP_WAIT_ORDER, **state)
+                return reply("Okey, cancelna l-moumtaj. Chno bghiti t-commander?")
+
+            qty = extract_quantity(incoming_msg)
+            if qty and isinstance(qty, int) and qty > 0:
+                accumulated = state.get("accumulated_products", [])
+                accumulated.append({
+                    "product_id": selected_product["product_id"],
+                    "name": selected_product["name"],
+                    "qty": qty
                 })
                 state["accumulated_products"] = accumulated
+                state.pop("selected_product", None)
                 state.pop("step", None)
                 set_state(session_id, STEP_WAIT_ORDER, **state)
                 return process_order_logic(session_id)
             else:
-                return reply("Afak khtar rqm dyal l-moumtaj mn l-qaima.")
+                p_name = selected_product.get("name", "l-moumtaj")
+                return reply(f"Afak 3tini rqm sahih d-la quantité d '{p_name}' (ex: 1, 2, 5...).")
 
         # ──────────────────────────────────────────────
         # STEP 7 – Ask for discount
@@ -412,11 +452,18 @@ def process_order_logic(session_id):
             return reply(f"Malqina hta moumtaj b-smit '{p['name']}'. Afak 3awd kteb smiytho.")
 
         if len(search_results) == 1:
-            accumulated.append({
-                "product_id": search_results[0]["product_id"],
-                "name": search_results[0]["name"],
-                "qty": p.get("qty", 1)
+            single = search_results[0]
+            state.update({
+                "selected_product": {
+                    "product_id": single["product_id"],
+                    "name": single["name"]
+                },
+                "pending_products": pending,
+                "accumulated_products": accumulated
             })
+            state.pop("step", None)
+            set_state(session_id, STEP_ASK_QUANTITY, **state)
+            return reply(f"Lqina: '{single['name']}'. Chhal d-la quantité li bghiti mnou?")
         else:
             state.update({
                 "options": search_results,
